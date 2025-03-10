@@ -1,0 +1,22 @@
+services:
+  dakosys:
+    image: dakosys
+    container_name: dakosys
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - /kometa:/kometa
+    restart: unless-stopped
+    command: --help
+    stdin_open: true
+    tty: true
+
+  dakosys-updater:
+    image: dakosys
+    container_name: dakosys-updater
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - /kometa:/kometa
+    restart: unless-stopped
+    command: daemon

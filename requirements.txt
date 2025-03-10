@@ -1,0 +1,8 @@
+requests>=2.25.0
+beautifulsoup4>=4.9.0
+plexapi>=4.5.0
+pyyaml>=5.4.0
+rich>=10.0.0
+click>=8.0.0
+schedule>=1.1.0
+pytz>=2021.1
