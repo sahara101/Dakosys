@@ -35,6 +35,8 @@ DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv list
 
 ### 📊 Size Overlay Service
 
+!! Trakt not needed at all !!
+
 ![image3](https://zipline.rlvd.eu/u/3CKGBe.png)
 
 - Create overlays showing file sizes for movies and TV shows
