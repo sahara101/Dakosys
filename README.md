@@ -11,7 +11,7 @@ DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv list
 
 !! Trakt VIP needed !!
 
-- Create Trakt.tv lists of anime episodes filtered by type (filler, manga canon, anime canon, mixed)
+- Create overlays of Trakt.tv lists of anime episodes filtered by type (filler, manga canon, anime canon, mixed)
 
 - Automate list updates with customizable scheduling
 
