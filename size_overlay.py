@@ -522,6 +522,7 @@ def run_size_overlay_service():
                 for change in item_changes:
                     if change['type'] == "NEW":
                         logger.info(f"New movie: {change['title']} ({change['current_size']:.2f} GB)")
+                        significant_changes.append(change)
                     else:
                         size_diff = change['change']
                         if abs(size_diff) > 0:
@@ -572,6 +573,7 @@ def run_size_overlay_service():
                     if change['type'] == "NEW":
                         episode_text = f"({change.get('episode_count', 0)} episodes)" if 'episode_count' in change else ""
                         logger.info(f"New show: {change['title']} {episode_text} - {change['current_size']:.2f} GB")
+                        significant_changes.append(change)
                     else:
                         size_diff = change['change']
                         if abs(size_diff) > 0:
@@ -711,7 +713,7 @@ def run_size_overlay_service():
                     new_items = [c for c in changes if c['type'] == "NEW"]
                     if new_items:
                         for item in new_items[:5]:  # Limit to 5 per library
-                            title = item['title']
+                            item_title = item['title']
                             curr = item['current_size']
                             
                             # Only show episodes for TV shows
@@ -719,7 +721,7 @@ def run_size_overlay_service():
                             if item.get('library_type') == 'show' and 'episode_count' in item:
                                 episode_text = f" ({item['episode_count']} episodes)"
                                 
-                            changes_text += f"• NEW: {title}{episode_text} - {format_filesize(curr)}\n"
+                            changes_text += f"• NEW: {item_title}{episode_text} - {format_filesize(curr)}\n"
 
                         if len(new_items) > 5:
                             changes_text += f"• ...and {len(new_items) - 5} more new items\n"
@@ -728,7 +730,7 @@ def run_size_overlay_service():
                     updated_items = [c for c in changes if c['type'] == "UPDATED"]
                     if updated_items:
                         for item in updated_items[:5]:  # Limit to 5 per library
-                            title = item['title']
+                            item_title = item['title']
                             prev = item['previous_size']
                             curr = item['current_size']
                             diff = item['change']
@@ -739,7 +741,7 @@ def run_size_overlay_service():
                             if item.get('library_type') == 'show' and 'episode_count' in item:
                                 episode_text = f" ({item['episode_count']} episodes)"
 
-                            changes_text += f"• {title}{episode_text}: {prev:.2f} GB → {curr:.2f} GB ({diff_sign}{diff:.2f} GB)\n"
+                            changes_text += f"• {item_title}{episode_text}: {prev:.2f} GB → {curr:.2f} GB ({diff_sign}{diff:.2f} GB)\n"
 
                         if len(updated_items) > 5:
                             changes_text += f"• ...and {len(updated_items) - 5} more changes\n"
