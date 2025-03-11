@@ -1,6 +1,6 @@
 # 🧛‍♂️ DAKOSYS - Docker App Kometa Overlay System
 
-DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv lists and Kometa/PMM overlays. It helps you categorize anime episodes by type, track TV show statuses, display media file sizes, and more - all running in Docker with automatic scheduling.
+DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv lists and Kometa/PMM overlays. It helps you categorize anime episodes by type, track TV show statuses, display media file sizes, all running in Docker with automatic scheduling.
 
 ## ✨ Features
 
