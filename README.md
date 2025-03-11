@@ -1,6 +1,6 @@
 # 🧛‍♂️ DAKOSYS - Docker App Kometa Overlay System
 
-DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv lists and Kometa/PMM overlays. It helps you categorize anime episodes by type, track TV show statuses, display media file sizes, and more - all running in Docker with automatic scheduling.
+DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv lists and Kometa/PMM overlays. It helps you categorize anime episodes by type, track TV show statuses, display media file sizes, all running in Docker with automatic scheduling.
 
 ## ✨ Features
 
@@ -11,7 +11,7 @@ DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv list
 
 !! Trakt VIP needed !!
 
-- Create Trakt.tv lists of anime episodes filtered by type (filler, manga canon, anime canon, mixed)
+- Create overlays of Trakt.tv lists of anime episodes filtered by type (filler, manga canon, anime canon, mixed)
 
 - Automate list updates with customizable scheduling
 
@@ -20,6 +20,8 @@ DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv list
 - Handle special title mappings between different sources
 
 ### 📺 TV/Anime Status Tracker
+
+!! No Trakt VIP needed as long as you still have 1 list to use !!
 
 ![Image2](https://zipline.rlvd.eu/u/X6lWUS.png)
 
@@ -32,6 +34,8 @@ DAKOSYS is a powerful tool for Plex users that creates and manages Trakt.tv list
 - Generate Trakt lists of shows with upcoming episodes
 
 ### 📊 Size Overlay Service
+
+!! Trakt not needed at all !!
 
 ![image3](https://zipline.rlvd.eu/u/3CKGBe.png)
 
@@ -93,14 +97,20 @@ During setup, you can enable three main services:
 1. Anime Episode Type Tracker
 Categorizes anime episodes by type (filler, manga canon, etc.), creates Trakt lists and Kometa overlays.
 
-!Important!: Since this cannot be fully automated because of differences in Anime Filler List and Trakt names I have added several commands for this service, see below. 
+<div align="center">
+  <h2>⚠️ TRAKT VIP REQUIRED ⚠️</h2>
+  <p>Trakt free accounts are limited to 2-10 lists.<br>
+  This app creates multiple lists (1 per episode type per anime).<br></p>
+</div>
+
+Since this cannot be fully automated because of differences in Anime Filler List and Trakt names I have added several commands for this service, see below. 
 
 The other two services are set and forget :)
 
-3. TV/Anime Status Tracker
+2. TV/Anime Status Tracker
 Creates overlays showing airing status, next episode dates, and special episodes.
 
-5. Size Overlay Service
+3. Size Overlay Service
 Creates overlays displaying file sizes and episode counts.
 
 Each service can be configured separately with different libraries and schedules.
@@ -111,6 +121,10 @@ You can always run ```docker compose run --rm dakosys --help``` to see possible 
 ### Anime Episode Type Tracker
 
 Create all list types for an anime at once
+
+You can type either the Plex anime name or the Anime Filler List (AFL) name (from URL). For Example https://www.animefillerlist.com/shows/boruto-naruto-next-generations whereas ```boruto-naruto-next-generations``` is the name you need. 
+
+The command below will first try to find the name in Plex. If it is a direct copy from Plex it will match it directly, if not it will try to find it. Then, it tries to match the Plex name to AFL. It uses a matching logic and asks if the found anime is the correct one. Please read the outputs. See an example at the end of README. 
 
 ```
 docker compose run --rm dakosys create-all "One-Piece"
@@ -342,4 +356,108 @@ docker compose run --rm dakosys setup anime_episode_type
 docker compose run --rm dakosys setup tv_status_tracker
 docker compose run --rm dakosys setup size_overlay
 ```
+
+## Example create-all
+
+```
+docker compose run --rm dakosys create-all "Bleach"
+Connecting to Plex server...
+Connected to Plex server successfully!
+Found direct match in Plex: Bleach
+Fetching anime list from AnimeFillerList...
+Looking for AnimeFillerList match for: Bleach
+Trying variations: bleach
+Found exact match on full title: bleach
+Found match: bleach
+Use this match? [Y/n]: y
+2025-03-10 23:16:01,031 - mappings_manager - INFO - Saved mappings to /app/config/mappings.yaml
+Added mapping: bleach → Bleach
+Using mapping: bleach → Bleach
+Looking for 'Bleach' in Plex libraries...
+Found TMDB ID: 30984
+Found Trakt show ID: 30850
+
+Checking for MANGA episodes...
+
+Found 162 MANGA episodes:
+1. Episode 1: The Day I Became a Shinigami (Manga Canon)
+2. Episode 2: The Shinigami's Work (Manga Canon)
+3. Episode 3: The Older Brother's Wish, the Younger Sister's Wish (Manga Canon)
+4. Episode 4: Cursed Parakeet (Manga Canon)
+5. Episode 5: Beat the Invisible Enemy! (Manga Canon)
+... and 157 more episodes
+Trakt list 'bleach_manga canon' created successfully with ID 30876171.
+Processing episodes... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Adding 162 episodes in batches...
+Rate limit hit, retrying batch 17 in 1s... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Summary:
+Successfully added: 162 episodes
+Already in list (skipped): 0 episodes
+Failed to add: 0 episodes
+List created: https://trakt.tv/users/sahara/lists/bleach_manga-canon
+
+Checking for FILLER episodes...
+
+Found 163 FILLER episodes:
+1. Episode 33: Miracle! The Mysterious New Hero (Filler)
+2. Episode 50: The Reviving Lion (Filler)
+3. Episode 64: New School Term, Renji Has Come to the Material World?! (Filler)
+4. Episode 65: Creeping Terror, the Second Victim (Filler)
+5. Episode 66: Breakthrough! The Trap Hidden in the Labyrinth (Filler)
+... and 158 more episodes
+Trakt list 'bleach_filler' created successfully with ID 30876173.
+Processing episodes... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Adding 163 episodes in batches...
+Rate limit hit, retrying batch 17 in 1s... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Summary:
+Successfully added: 163 episodes
+Already in list (skipped): 0 episodes
+Failed to add: 0 episodes
+List created: https://trakt.tv/users/sahara/lists/bleach_filler
+
+Checking for ANIME episodes...
+No ANIME episodes found for bleach
+
+Checking for MIXED episodes...
+
+Found 41 MIXED episodes:
+1. Episode 8: June 17, Memories in the Rain (Mixed Canon/Filler)
+2. Episode 27: Release the Death Blow! (Mixed Canon/Filler)
+3. Episode 32: Stars and the Stray (Mixed Canon/Filler)
+4. Episode 46: Authentic Records! School of Shinigami (Mixed Canon/Filler)
+5. Episode 109: Ichigo and Rukia, Thoughts in the Revolving Around Heaven (Mixed Canon/Filler)
+... and 36 more episodes
+Trakt list 'bleach_mixed canon/filler' created successfully with ID 30876176.
+Processing episodes... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Adding 41 episodes in batches...
+Rate limit hit, retrying batch 5 in 1s... ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 100%
+
+Summary:
+Successfully added: 41 episodes
+Already in list (skipped): 0 episodes
+Failed to add: 0 episodes
+List created: https://trakt.tv/users/sahara/lists/bleach_mixed-canon-filler
+
+🎉 List creation complete! 🎉
+
+Created lists:
+✓ MANGA: 162 episodes - https://trakt.tv/users/sahara/lists/bleach_manga-canon
+✓ FILLER: 163 episodes - https://trakt.tv/users/sahara/lists/bleach_filler
+✓ MIXED: 41 episodes - https://trakt.tv/users/sahara/lists/bleach_mixed-canon-filler
+
+Would you like to add 'Bleach' to the automatic update schedule? [Y/n]: n
+'Bleach' will not be automatically updated.
+
+Episode types with no episodes:
+✗ ANIME: No episodes found
+Synchronizing collections file with Trakt lists...
+Collections synchronized successfully!
+Updated file: /kometa/config/collections/anime_episode_type.yml
+```
+
 
