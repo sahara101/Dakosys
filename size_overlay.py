@@ -381,39 +381,112 @@ def track_library_changes(library_title, library_type, current_data, previous_si
 
     # Track individual item changes
     item_changes = []
+    
+    # Get previous items data
     previous_items = {}
+    previous_episodes = {}
+    
     if library_key in previous_sizes and 'items' in previous_sizes[library_key]:
         previous_items = previous_sizes[library_key]['items']
+    
+    # Get previous episode counts if they exist
+    if library_key in previous_sizes and 'episodes' in previous_sizes[library_key]:
+        previous_episodes = previous_sizes[library_key]['episodes']
+    else:
+        # Initialize episode counts
+        previous_episodes = {}
 
-    for item in current_data:
-        title = item['title']
-        current_size = item['size_gb']
-        previous_size = previous_items.get(title, None)
+    # Check if this is the first run (no previous data)
+    is_first_run = not previous_items
 
-        if previous_size is None or abs(current_size - previous_size) > 0.01:  # 0.01 GB threshold for changes
-            change_type = "NEW" if previous_size is None else "UPDATED"
-            size_change = current_size if previous_size is None else (current_size - previous_size)
+    # Skip change detection on first run, just record current state
+    if not is_first_run:
+        for item in current_data:
+            title = item['title']
+            current_size = item['size_gb']
+            previous_size = previous_items.get(title, None)
             
+            # Get episode counts for shows
+            current_episode_count = item.get('episode_count', 0) if library_type == 'show' else 0
+            previous_episode_count = previous_episodes.get(title, 0) if library_type == 'show' else 0
+
+            # Determine change type based on what changed
+            if previous_size is None:
+                # Completely new item
+                change_type = "NEW"
+                size_change = current_size
+            elif library_type == 'show' and current_episode_count > previous_episode_count:
+                # New episodes added to existing show
+                change_type = "NEW_EPISODES"
+                size_change = current_size - previous_size
+                episodes_added = current_episode_count - previous_episode_count
+            elif library_type == 'show' and current_episode_count < previous_episode_count:
+                # Episodes removed from existing show
+                change_type = "REMOVED_EPISODES"
+                size_change = current_size - previous_size
+                episodes_removed = previous_episode_count - current_episode_count
+            elif abs(current_size - previous_size) > 0.01:  # 0.01 GB threshold for changes
+                # Quality change to existing item (size changed but episode count is same)
+                change_type = "QUALITY_CHANGE"
+                size_change = current_size - previous_size
+            else:
+                # No significant change
+                continue
+
             change_item = {
                 'title': title,
                 'previous_size': previous_size,
                 'current_size': current_size,
                 'change': size_change,
                 'type': change_type,
-                'library_type': library_type  # Add explicit library type to each change
+                'library_type': library_type
             }
-            
-            # Only add episode_count for shows, not for movies
-            if library_type == 'show' and 'episode_count' in item:
-                change_item['episode_count'] = item['episode_count']
-                
+
+            # Add episode info for TV shows and anime
+            if library_type == 'show':
+                change_item['episode_count'] = current_episode_count
+                if change_type in ["NEW_EPISODES", "REMOVED_EPISODES", "QUALITY_CHANGE"]:
+                    change_item['previous_episode_count'] = previous_episode_count
+                    if change_type == "NEW_EPISODES":
+                        change_item['episodes_added'] = episodes_added
+                    elif change_type == "REMOVED_EPISODES":
+                        change_item['episodes_removed'] = episodes_removed
+
             item_changes.append(change_item)
+        
+        # Check for items that were removed completely
+        for title, previous_size in previous_items.items():
+            if not any(item['title'] == title for item in current_data):
+                change_type = "REMOVED"
+                size_change = -previous_size  # Negative value for size reduction
+                
+                change_item = {
+                    'title': title,
+                    'previous_size': previous_size,
+                    'current_size': 0,
+                    'change': size_change,
+                    'type': change_type,
+                    'library_type': library_type
+                }
+                
+                # Add episode info for removed shows
+                if library_type == 'show' and title in previous_episodes:
+                    change_item['previous_episode_count'] = previous_episodes[title]
+                
+                item_changes.append(change_item)
 
     # Update previous sizes for next run
     new_items = {item['title']: item['size_gb'] for item in current_data}
+    
+    # Save episode counts for shows
+    new_episodes = {}
+    if library_type == 'show':
+        new_episodes = {item['title']: item.get('episode_count', 0) for item in current_data}
+    
     previous_sizes[library_key] = {
         'total_size': total_size,
         'items': new_items,
+        'episodes': new_episodes,
         'last_updated': datetime.now().isoformat()
     }
 
@@ -523,11 +596,14 @@ def run_size_overlay_service():
                     if change['type'] == "NEW":
                         logger.info(f"New movie: {change['title']} ({change['current_size']:.2f} GB)")
                         significant_changes.append(change)
-                    else:
+                    elif change['type'] == "QUALITY_CHANGE":
                         size_diff = change['change']
                         if abs(size_diff) > 0:
-                            logger.info(f"Movie size change: {change['title']} - {format_size_change(change['previous_size'], change['current_size'])}")
+                            logger.info(f"Movie quality change: {change['title']} - {format_size_change(change['previous_size'], change['current_size'])}")
                             significant_changes.append(change)
+                    elif change['type'] == "REMOVED":
+                        logger.info(f"Removed movie: {change['title']} ({change['previous_size']:.2f} GB)")
+                        significant_changes.append(change)
 
                 library_changes.append({
                     'library': library_title,
@@ -554,7 +630,7 @@ def run_size_overlay_service():
             shows_info = process_show_library(plex, library)
             total_items_processed += len(shows_info)
             total_shows += len(shows_info)
-            
+
             # Sum episode counts only for TV shows
             show_episodes = sum(show.get('episode_count', 0) for show in shows_info)
             total_episodes += show_episodes
@@ -574,12 +650,28 @@ def run_size_overlay_service():
                         episode_text = f"({change.get('episode_count', 0)} episodes)" if 'episode_count' in change else ""
                         logger.info(f"New show: {change['title']} {episode_text} - {change['current_size']:.2f} GB")
                         significant_changes.append(change)
-                    else:
+                    elif change['type'] == "NEW_EPISODES":
+                        size_diff = change['change']
+                        episodes_added = change.get('episodes_added', 'unknown')
+                        episode_count = change.get('episode_count', 0)
+                        logger.info(f"New episodes: {change['title']} (+{episodes_added} episodes, now {episode_count} total) - {format_size_change(change['previous_size'], change['current_size'])}")
+                        significant_changes.append(change)
+                    elif change['type'] == "REMOVED_EPISODES":
+                        size_diff = change['change']
+                        episodes_removed = change.get('episodes_removed', 'unknown')
+                        episode_count = change.get('episode_count', 0)
+                        logger.info(f"Removed episodes: {change['title']} (-{episodes_removed} episodes, now {episode_count} total) - {format_size_change(change['previous_size'], change['current_size'])}")
+                        significant_changes.append(change)
+                    elif change['type'] == "QUALITY_CHANGE":
                         size_diff = change['change']
                         if abs(size_diff) > 0:
                             episode_text = f"({change.get('episode_count', 0)} episodes)" if 'episode_count' in change else ""
-                            logger.info(f"Show size change: {change['title']} {episode_text} - {format_size_change(change['previous_size'], change['current_size'])}")
+                            logger.info(f"Show quality change: {change['title']} {episode_text} - {format_size_change(change['previous_size'], change['current_size'])}")
                             significant_changes.append(change)
+                    elif change['type'] == "REMOVED":
+                        prev_ep_count = change.get('previous_episode_count', 0)
+                        logger.info(f"Removed show: {change['title']} ({prev_ep_count} episodes, {change['previous_size']:.2f} GB)")
+                        significant_changes.append(change)
 
                 library_changes.append({
                     'library': library_title,
@@ -618,7 +710,7 @@ def run_size_overlay_service():
             from notifications import send_discord_notification
 
             # Determine if this is the first run or if there are changes
-            is_first_run = size_change_gb > 0 and abs(size_change_gb - total_size_gb) < 0.01
+            is_first_run = not os.path.exists(SIZES_FILE) or previous_sizes == {}
             has_changes = len(significant_changes) > 0
 
             # Skip notification entirely if no changes and not first run
@@ -667,15 +759,49 @@ def run_size_overlay_service():
                 color = 5763719
 
             elif has_changes:
-                # Changes detected notification
-                title = "Size Overlay Service - Media Changes Detected"
-
-                # Summarize what changed
-                num_new = len([c for c in significant_changes if c['type'] == "NEW"])
-                num_updated = len([c for c in significant_changes if c['type'] == "UPDATED"])
+                # Count different types of changes
+                num_new_media = len([c for c in significant_changes if c['type'] == "NEW"])
+                num_new_episodes = len([c for c in significant_changes if c['type'] == "NEW_EPISODES"])
+                num_removed_episodes = len([c for c in significant_changes if c['type'] == "REMOVED_EPISODES"])
+                num_quality_changes = len([c for c in significant_changes if c['type'] == "QUALITY_CHANGE"])
+                num_removed_media = len([c for c in significant_changes if c['type'] == "REMOVED"])
 
                 diff_text = f"{'+' if size_change_gb > 0 else ''}{format_filesize(size_change_gb)}"
-                message = f"Detected {num_new} new items and {num_updated} changes. Total change: {diff_text}"
+                
+                # Build the notification title and message based on what changed
+                changes = []
+                if num_new_media > 0:
+                    changes.append(f"{num_new_media} new {'items' if num_new_media != 1 else 'item'}")
+                if num_new_episodes > 0:
+                    changes.append(f"{num_new_episodes} {'shows' if num_new_episodes != 1 else 'show'} with new episodes")
+                if num_removed_episodes > 0:
+                    changes.append(f"{num_removed_episodes} {'shows' if num_removed_episodes != 1 else 'show'} with removed episodes")
+                if num_quality_changes > 0:
+                    changes.append(f"{num_quality_changes} quality {'changes' if num_quality_changes != 1 else 'change'}")
+                if num_removed_media > 0:
+                    changes.append(f"{num_removed_media} removed {'items' if num_removed_media != 1 else 'item'}")
+                
+                if len(changes) > 1:
+                    # Join with commas and 'and' for the last item
+                    message_changes = ", ".join(changes[:-1]) + ", and " + changes[-1]
+                else:
+                    message_changes = changes[0] if changes else "changes"
+                
+                # Set title based on most significant change type
+                if num_new_media > 0 and num_new_episodes > 0:
+                    title = "Size Overlay Service - New Media and Episodes"
+                elif num_new_media > 0:
+                    title = "Size Overlay Service - New Media Added"
+                elif num_new_episodes > 0:
+                    title = "Size Overlay Service - New Episodes Added"
+                elif num_removed_media > 0 or num_removed_episodes > 0:
+                    title = "Size Overlay Service - Media Removed"
+                elif num_quality_changes > 0:
+                    title = "Size Overlay Service - Quality Changes"
+                else:
+                    title = "Size Overlay Service - Media Changes Detected"
+                
+                message = f"Detected {message_changes}. Total change: {diff_text}"
 
                 # Create detailed changes report
                 changes_text = ""
@@ -689,10 +815,16 @@ def run_size_overlay_service():
                         item['library_type'] = library['type']
                         item_changes.append(item)
 
-                # Sort changes by type (NEW first) then by size
+                # Sort changes by type (NEW first, then NEW_EPISODES, then others) then by size
                 sorted_changes = sorted(
                     item_changes,
-                    key=lambda x: (0 if x['type'] == "NEW" else 1, -abs(x.get('change', 0) or 0))
+                    key=lambda x: (
+                        0 if x['type'] == "NEW" else 
+                        (1 if x['type'] == "NEW_EPISODES" else 
+                         (2 if x['type'] == "QUALITY_CHANGE" else 
+                          (3 if x['type'] == "REMOVED_EPISODES" else 4))), 
+                        -abs(x.get('change', 0) or 0)
+                    )
                 )
 
                 # Group by library for cleaner presentation
@@ -708,44 +840,95 @@ def run_size_overlay_service():
                 # Format each library's changes
                 for library, changes in changes_by_library.items():
                     changes_text += f"**{library}**\n"
-
+                    
                     # Show new items first
                     new_items = [c for c in changes if c['type'] == "NEW"]
                     if new_items:
-                        for item in new_items[:5]:  # Limit to 5 per library
+                        for item in new_items[:5]:
                             item_title = item['title']
                             curr = item['current_size']
-                            
-                            # Only show episodes for TV shows
-                            episode_text = ""
-                            if item.get('library_type') == 'show' and 'episode_count' in item:
-                                episode_text = f" ({item['episode_count']} episodes)"
-                                
+                            episode_text = f" ({item['episode_count']} episodes)" if item.get('library_type') == 'show' and 'episode_count' in item else ""
                             changes_text += f"• NEW: {item_title}{episode_text} - {format_filesize(curr)}\n"
-
                         if len(new_items) > 5:
                             changes_text += f"• ...and {len(new_items) - 5} more new items\n"
-
-                    # Then show updated items
-                    updated_items = [c for c in changes if c['type'] == "UPDATED"]
-                    if updated_items:
-                        for item in updated_items[:5]:  # Limit to 5 per library
+                    
+                    # Show new episodes second
+                    new_episode_items = [c for c in changes if c['type'] == "NEW_EPISODES"]
+                    if new_episode_items:
+                        for item in new_episode_items[:5]:
                             item_title = item['title']
                             prev = item['previous_size']
                             curr = item['current_size']
                             diff = item['change']
                             diff_sign = "+" if diff > 0 else ""
                             
-                            # Only show episodes for TV shows
+                            # Show episode counts and how many were added
+                            episodes_added = item.get('episodes_added', 'unknown')
+                            current_episodes = item.get('episode_count', 0)
+                            episode_text = f" ({current_episodes} episodes, +{episodes_added} new)"
+                            
+                            changes_text += f"• NEW EPISODES: {item_title}{episode_text} - {prev:.2f} GB → {curr:.2f} GB ({diff_sign}{diff:.2f} GB)\n"
+                        
+                        if len(new_episode_items) > 5:
+                            changes_text += f"• ...and {len(new_episode_items) - 5} more shows with new episodes\n"
+                    
+                    # Show quality changes
+                    quality_items = [c for c in changes if c['type'] == "QUALITY_CHANGE"]
+                    if quality_items:
+                        for item in quality_items[:5]:
+                            item_title = item['title']
+                            prev = item['previous_size']
+                            curr = item['current_size']
+                            diff = item['change']
+                            diff_sign = "+" if diff > 0 else ""
+                            
+                            # For quality changes, include episode count but note it's the same count
                             episode_text = ""
                             if item.get('library_type') == 'show' and 'episode_count' in item:
                                 episode_text = f" ({item['episode_count']} episodes)"
-
-                            changes_text += f"• {item_title}{episode_text}: {prev:.2f} GB → {curr:.2f} GB ({diff_sign}{diff:.2f} GB)\n"
-
-                        if len(updated_items) > 5:
-                            changes_text += f"• ...and {len(updated_items) - 5} more changes\n"
-
+                            
+                            changes_text += f"• QUALITY CHANGE: {item_title}{episode_text} - {prev:.2f} GB → {curr:.2f} GB ({diff_sign}{diff:.2f} GB)\n"
+                        
+                        if len(quality_items) > 5:
+                            changes_text += f"• ...and {len(quality_items) - 5} more quality changes\n"
+                    
+                    # Show removed episodes
+                    removed_episode_items = [c for c in changes if c['type'] == "REMOVED_EPISODES"]
+                    if removed_episode_items:
+                        for item in removed_episode_items[:5]:
+                            item_title = item['title']
+                            prev = item['previous_size']
+                            curr = item['current_size']
+                            diff = item['change']
+                            diff_sign = "+" if diff > 0 else ""
+                            
+                            # Show episode counts and how many were removed
+                            episodes_removed = item.get('episodes_removed', 'unknown')
+                            current_episodes = item.get('episode_count', 0)
+                            episode_text = f" ({current_episodes} episodes, {episodes_removed} removed)"
+                            
+                            changes_text += f"• REMOVED EPISODES: {item_title}{episode_text} - {prev:.2f} GB → {curr:.2f} GB ({diff_sign}{diff:.2f} GB)\n"
+                        
+                        if len(removed_episode_items) > 5:
+                            changes_text += f"• ...and {len(removed_episode_items) - 5} more shows with removed episodes\n"
+                    
+                    # Show completely removed items
+                    removed_items = [c for c in changes if c['type'] == "REMOVED"]
+                    if removed_items:
+                        for item in removed_items[:5]:
+                            item_title = item['title']
+                            prev = item['previous_size']
+                            
+                            # For removed items, show previous size and episode count if available
+                            episode_text = ""
+                            if item.get('library_type') == 'show' and 'previous_episode_count' in item:
+                                episode_text = f" ({item['previous_episode_count']} episodes)"
+                            
+                            changes_text += f"• REMOVED: {item_title}{episode_text} - {prev:.2f} GB\n"
+                        
+                        if len(removed_items) > 5:
+                            changes_text += f"• ...and {len(removed_items) - 5} more removed items\n"
+                    
                     changes_text += "\n"  # Add spacing between libraries
 
                 # Create custom fields for the notification

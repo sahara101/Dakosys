@@ -242,6 +242,7 @@ def notify_mapping_errors(anime_name, episode_type, failed_episodes, details=Non
 def notify_tv_status_updates(changes, total_shows):
     """
     Send notification about TV/Anime status tracker changes with proper DD/MM date sorting
+    and respect ALL Discord webhook limits.
 
     Args:
         changes: Dictionary of shows grouped by status type including both status and date changes
@@ -257,25 +258,9 @@ def notify_tv_status_updates(changes, total_shows):
         logger.info("No status changes to notify about")
         return False
 
-    # Create title and message
-    title = "TV/Anime Status Updates"
-    message = f"Processed {total_shows} shows. Found changes for {total_changes} shows."
-
-    # Create custom fields for the embed
-    embed_fields = []
-
-    # Define a friendly order for display (most interesting first)
-    order = [
-        'AIRING',
-        'SEASON_PREMIERE',
-        'SEASON_FINALE',
-        'MID_SEASON_FINALE',
-        'FINAL_EPISODE',
-        'RETURNING',
-        'DATE_CHANGED',
-        'ENDED',
-        'CANCELLED'
-    ]
+    # Create title and message (with limits)
+    title = "TV/Anime Status Updates"[:256]  # Discord title limit: 256 chars
+    message = f"Processed {total_shows} shows. Found changes for {total_changes} shows."[:4096]  # Desc limit: 4096 chars
 
     # Display friendly names for each status
     status_names = {
@@ -289,6 +274,19 @@ def notify_tv_status_updates(changes, total_shows):
         'ENDED': 'Ended Shows',
         'CANCELLED': 'Cancelled Shows'
     }
+
+    # Define a friendly order for display (most interesting first)
+    order = [
+        'AIRING',
+        'SEASON_PREMIERE',
+        'SEASON_FINALE',
+        'MID_SEASON_FINALE',
+        'FINAL_EPISODE',
+        'RETURNING',
+        'DATE_CHANGED',
+        'ENDED',
+        'CANCELLED'
+    ]
 
     # Helper function to parse date and sort shows - fixed for DD/MM format
     def sort_by_date(show):
@@ -316,6 +314,21 @@ def notify_tv_status_updates(changes, total_shows):
             # If parsing fails, put at the end
             return datetime.max
 
+    # Create a list to hold our embeds (Discord allows up to 10)
+    all_embeds = []
+
+    # Create the first embed with the main message
+    current_embed = {
+        "title": title,
+        "description": message,
+        "color": 3447003,  # Blue
+        "fields": []
+    }
+
+    # Track total character count for the current embed
+    # Title + description counts toward the total
+    current_char_count = len(title) + len(message)
+
     # Process each status type in the defined order
     for status in order:
         if status in changes and changes[status]:
@@ -329,25 +342,156 @@ def notify_tv_status_updates(changes, total_shows):
             for show in sorted_shows:
                 # Format based on what changed
                 if status == 'DATE_CHANGED':
-                    shows_text += f"• {show['title']} - New date: {show['new_date']}\n"
+                    line = f"• {show['title']} - New date: {show['new_date']}\n"
                 elif status in ['ENDED', 'CANCELLED']:
-                    shows_text += f"• {show['title']} - {show['new_status']}\n"
+                    line = f"• {show['title']} - {show['new_status']}\n"
                 else:
                     # For airing shows, include the date if available
                     date_info = f" ({show['new_date']})" if show['new_date'] else ""
-                    shows_text += f"• {show['title']}{date_info}\n"
+                    line = f"• {show['title']}{date_info}\n"
 
-            # Add this status group as a field if we have any shows
-            if shows_text:
-                embed_fields.append({
-                    "name": f"{status_names.get(status, status)} ({len(shows)})",
-                    "value": shows_text.strip()
+                shows_text += line
+
+            # Chunk text if it exceeds Discord's 1024 character limit per field
+            field_name = f"{status_names.get(status, status)} ({len(shows)})"[:256]  # Limit name to 256 chars
+
+            if len(shows_text) <= 1024:
+                # Short enough to fit in one field
+                field_value = shows_text.strip() or "No details available"
+                field_size = len(field_name) + len(field_value)
+
+                # Check if adding this field would exceed the total character limit
+                if current_char_count + field_size > 6000 or len(current_embed["fields"]) >= 25:
+                    # This embed is full, create a new one
+                    all_embeds.append(current_embed)
+                    if len(all_embeds) >= 10:  # Discord limit of 10 embeds per message
+                        logger.warning("Reached maximum number of embeds (10). Some status updates won't be shown.")
+                        break
+
+                    # Start a new embed
+                    current_embed = {
+                        "title": f"{title} (continued)",
+                        "color": 3447003,  # Blue
+                        "fields": []
+                    }
+                    current_char_count = len(current_embed["title"])
+
+                # Add the field to the current embed
+                current_embed["fields"].append({
+                    "name": field_name,
+                    "value": field_value
                 })
+                current_char_count += field_size
+            else:
+                # Need to split into multiple fields due to Discord's 1024 char limit
+                chunks = []
+                current_chunk = ""
 
-    # Use a blue color for status updates
-    return send_discord_notification(
-        title,
-        message,
-        color=3447003,  # Blue color
-        custom_fields=embed_fields  # Use custom fields to display all shows
-    )
+                # Split by lines to preserve whole show entries
+                lines = shows_text.strip().split('\n')
+                for line in lines:
+                    if len(current_chunk) + len(line) + 1 <= 1024:  # +1 for newline
+                        current_chunk += line + '\n'
+                    else:
+                        # Current chunk is full
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                        current_chunk = line + '\n'
+
+                # Add the last chunk if it has content
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+
+                # Add each chunk as a separate field
+                for i, chunk in enumerate(chunks):
+                    if i == 0:
+                        chunk_name = field_name
+                    else:
+                        chunk_name = f"{status_names.get(status, status)} (continued {i})"[:256]
+
+                    chunk_value = chunk or "No details available"
+                    field_size = len(chunk_name) + len(chunk_value)
+
+                    # Check if adding this field would exceed limits
+                    if current_char_count + field_size > 6000 or len(current_embed["fields"]) >= 25:
+                        # This embed is full, create a new one
+                        all_embeds.append(current_embed)
+                        if len(all_embeds) >= 10:  # Discord limit
+                            logger.warning("Reached maximum number of embeds (10). Some status updates won't be shown.")
+                            break
+
+                        # Start a new embed
+                        current_embed = {
+                            "title": f"{title} (continued)",
+                            "color": 3447003,  # Blue
+                            "fields": []
+                        }
+                        current_char_count = len(current_embed["title"])
+
+                    # Add the chunk as a field
+                    current_embed["fields"].append({
+                        "name": chunk_name,
+                        "value": chunk_value
+                    })
+                    current_char_count += field_size
+
+    # Add the final embed if it has fields and hasn't been added yet
+    if current_embed["fields"] and current_embed not in all_embeds and len(all_embeds) < 10:
+        all_embeds.append(current_embed)
+
+    # Check if we have any embeds to send
+    if not all_embeds:
+        logger.warning("No embeds created. This shouldn't happen if there were changes.")
+        return False
+
+    # Send the notification with all embeds
+    try:
+        timestamp = datetime.utcnow().isoformat()
+
+        # Add timestamp to the first embed
+        if all_embeds:
+            all_embeds[0]["timestamp"] = timestamp
+
+        # Create the payload
+        payload = {
+            "username": "DAKOSYS Monitor",
+            "embeds": all_embeds
+        }
+
+        # Get Discord webhook URL from config
+        config = load_config()
+        if not config or 'notifications' not in config or 'discord' not in config['notifications']:
+            logger.error("Discord webhook not configured")
+            return False
+
+        webhook_url = config['notifications']['discord'].get('webhook_url')
+        if not webhook_url:
+            logger.error("Discord webhook URL not found in configuration")
+            return False
+
+        # Remove any quotes that might have been added in the config
+        webhook_url = webhook_url.strip('"\'')
+
+        # Send the webhook
+        response = requests.post(
+            webhook_url,
+            json=payload,
+            headers={"Content-Type": "application/json"}
+        )
+
+        if response.status_code == 204:
+            logger.info(f"Successfully sent TV status notification with {len(all_embeds)} embeds")
+            return True
+        else:
+            logger.error(f"Failed to send Discord notification: {response.status_code} {response.text}")
+
+            # Debug output of what we tried to send
+            logger.debug(f"Total embeds: {len(all_embeds)}")
+            for i, embed in enumerate(all_embeds):
+                logger.debug(f"Embed {i+1}: {len(embed.get('fields', []))} fields")
+
+            return False
+
+    except Exception as e:
+        logger.error(f"Error sending Discord notification: {str(e)}")
+        return False
