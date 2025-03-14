@@ -90,6 +90,30 @@ docker compose up -d dakosys-updater
 ```
 This starts the background service that automatically runs updates according to your schedule.
 
+Add the genertaed yml files to Kometa config.yml, see below examples:
+
+```
+  Seriale:
+    collection_files:
+    - file: config/collections/seriale-next-airing.yml
+    overlay_files:
+    - file: config/overlays/size-overlays-seriale.yml
+    - file: config/overlays/overlay_tv_status_seriale.yml
+
+  Anime:
+    collection_files:
+    - file: config/collections/anime-next-airing.yml
+    - file: config/collections/anime_episode_type.yml
+      schedule: weekly(monday)
+    overlay_files:
+    - file: config/overlays/size-overlays-anime.yml
+    - file: config/overlays/fillers.yml
+    - file: config/overlays/manga_canon.yml
+    - file: config/overlays/anime_canon.yml
+    - file: config/overlays/mixed.yml
+    - file: config/overlays/overlay_tv_status_anime.yml
+```
+
 ## 🧩 Service Configuration
 
 During setup, you can enable three main services:
