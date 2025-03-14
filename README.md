@@ -90,7 +90,7 @@ docker compose up -d dakosys-updater
 ```
 This starts the background service that automatically runs updates according to your schedule.
 
-Add the genertaed yml files to Kometa config.yml, see below examples:
+Add the generated yml files to Kometa config.yml, see below examples:
 
 ```
   Seriale:
@@ -296,28 +296,44 @@ Run 'docker compose run --rm dakosys fix-mappings' to resolve these issues
 ```
 
 ```
-Detected 0 new items and 2 changes. Total change: +23.30 GB
+Size Overlay Service - New Media and Episodes
+Detected 1 new item, 2 shows with new episodes, 1 quality change, and 1 removed item. Total change: +17.96 GB
 Media Libraries
-• Filme: 11.79 TB - 386 movies
-• Anime: 3.30 TB - 29 shows (3226 episodes)
-• Seriale: 14.66 TB - 107 shows (4772 episodes)
+• Filme: 11.81 TB - 387 movies
+• Anime: 3.30 TB - 29 shows (3227 episodes)
+• Seriale: 14.71 TB - 108 shows (4783 episodes)
 Total Media Size
-29.75 TB across 386 movies and 136 shows with 7998 episodes.
+29.82 TB across 387 movies and 137 shows with 8010 episodes.
 Changes Detected
-Filme
-• The Hunger Games: 53.96 GB → 77.36 GB (+23.40 GB)
-
 Seriale
-• Power Rangers (971 episodes): 439.47 GB → 439.37 GB (-0.10 GB)
+• NEW: Paw Patrol (7 episodes) - 8.20 GB
+• NEW EPISODES: Severance (18 episodes, +1 new) - 142.73 GB → 150.53 GB (+7.80 GB)
+• NEW EPISODES: Ghosts (US) (66 episodes, +1 new) - 134.79 GB → 137.05 GB (+2.26 GB)
+
+Anime
+• QUALITY CHANGE: Dr. STONE (67 episodes) - 133.50 GB → 134.70 GB (+1.20 GB)
+
+Filme
+• REMOVED: Solo Leveling -ReAwakening- - 1.50 GB
 ```
 
 ```
 TV/Anime Status Updates
-Processed 136 shows. Found changes for 3 shows.
-Date Changes (3)
-• Dr. STONE - New date: 13/03
-• Ghosts (US) - New date: 14/03
-• Severance - New date: 14/03
+Processed 137 shows. Found changes for 11 shows.
+Now Airing (5)
+• Solo Leveling (15/03)
+• Dr. STONE (20/03)
+• Reacher (20/03)
+• Ghosts (US) (04/04)
+• One Piece (06/04)
+Season Premieres (5)
+• Black Butler (05/04)
+• Black Mirror (10/04)
+• The Last of Us (14/04)
+• Squid Game (27/06)
+• FROM (23/09)
+Season Finales (1)
+• Severance (21/03)
 ```
 
 TV show status changes
