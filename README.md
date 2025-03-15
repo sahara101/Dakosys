@@ -127,6 +127,8 @@ Categorizes anime episodes by type (filler, manga canon, etc.), creates Trakt li
   This app creates multiple lists (1 per episode type per anime).<br></p>
 </div>
 
+```Anime episode ordering in Plex will have to match episodes in trakt (TMDB). SO you will have to change some of them, for example One Piece.```
+
 Since this cannot be fully automated because of differences in Anime Filler List and Trakt names I have added several commands for this service, see below. 
 
 The other two services are set and forget :)
