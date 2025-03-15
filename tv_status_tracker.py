@@ -306,6 +306,42 @@ class TVStatusTracker:
         logging.debug(f"No status information found for: {show.title}")
         return None
 
+    def sanitize_title_for_search(self, title):
+        """
+        Add wildcards (%) to handle special characters in title.is searches.
+        Based on empirical testing with Plex's search behavior.
+        """
+        # Handle titles that start with apostrophes (like 'Allo 'Allo!)
+        if title.startswith("'"):
+            title = "%" + title  # Add % before starting apostrophe
+        
+        # Replace internal apostrophes with %'%
+        if "'" in title and not title.startswith("'"):
+            parts = title.split("'")
+            # Join with %'% but be careful not to add it at the beginning if the title starts with '
+            if title.startswith("'"):
+                new_title = parts[0] + "'"
+                for part in parts[1:]:
+                    new_title += "%'%" + part
+                title = new_title
+            else:
+                title = "%'%".join(parts)
+        
+        # Handle commas by adding % before the comma
+        if ", " in title:
+            parts = title.split(", ")
+            title = "%,".join([part + "%" for part in parts[:-1]] + [parts[-1]])
+        
+        # Handle ampersands with % before and after
+        if " & " in title:
+            title = title.replace(" & ", " %&% ")
+        
+        # Special handling for specific characters that might cause issues
+        # Add more rules based on testing
+        
+        logging.debug(f"Sanitized title for search: '{title}' from original '{title}'")
+        return title
+
     def create_yaml(self, library_name, headers):
         """Create YAML overlay file for a library."""
         logging.info(f"Processing library: {library_name}")
@@ -322,6 +358,11 @@ class TVStatusTracker:
 
                 if show_info:
                     formatted_title = show.title.replace(' ', '_')
+                    
+                    # Create a safe version of the title with wildcards for special characters
+                    safe_title = self.sanitize_title_for_search(show.title)
+                    logging.debug(f"Using sanitized title for search: '{safe_title}'")
+                    
                     yaml_data['overlays'][f'{library_name}_Status_{formatted_title}'] = {
                         'overlay': {
                             'back_color': show_info['back_color'],
@@ -338,7 +379,7 @@ class TVStatusTracker:
                         },
                         'plex_search': {
                             'all': {
-                                'title.is': show.title
+                                'title.is': safe_title
                             }
                         }
                     }
@@ -585,7 +626,7 @@ collections:
                         else:
                             # New show that wasn't processed before
                             curr = current_status[show.title]
-                            
+
                             # Only add to notification if it has an interesting status (not just ENDED/CANCELLED)
                             if status_text not in ['ENDED', 'CANCELLED']:
                                 status_key = None
@@ -607,7 +648,7 @@ collections:
                                     if is_first_run:
                                         # Check if the show has a date or is a final episode
                                         has_date = bool(curr['date'])
-                                        
+
                                         # Only add if it has a date or is a final episode
                                         if has_date or status_key == 'FINAL_EPISODE':
                                             changes[status_key].append({
@@ -631,8 +672,13 @@ collections:
                                             'library': library_name
                                         })
 
-                        # Add to YAML data
+                        # Format the title for YAML key
                         formatted_title = show.title.replace(' ', '_')
+                        
+                        # Create a safe version of the title with wildcards for special characters
+                        safe_title = self.sanitize_title_for_search(show.title)
+                        
+                        # Add to YAML data
                         yaml_data['overlays'][f'{library_name}_Status_{formatted_title}'] = {
                             'overlay': {
                                 'back_color': show_info['back_color'],
@@ -649,7 +695,7 @@ collections:
                             },
                             'plex_search': {
                                 'all': {
-                                    'title.is': show.title
+                                    'title.is': safe_title
                                 }
                             }
                         }
