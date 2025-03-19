@@ -344,7 +344,7 @@ def notify_tv_status_updates(changes, total_shows):
                 if status == 'DATE_CHANGED':
                     line = f"• {show['title']} - New date: {show['new_date']}\n"
                 elif status in ['ENDED', 'CANCELLED']:
-                    line = f"• {show['title']} - {show['new_status']}\n"
+                    line = f"• {show['title']}\n"
                 else:
                     # For airing shows, include the date if available
                     date_info = f" ({show['new_date']})" if show['new_date'] else ""

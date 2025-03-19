@@ -199,40 +199,45 @@ class TVStatusTracker:
             if 'tmdb://' in guid.id:
                 tmdb_id = guid.id.split('//')[1]
 
-                # Just copy your original code, but add retry only for rate limits
+                def make_trakt_api_call(url, max_retries=5):
+                    for attempt in range(max_retries):
+                        response = requests.get(url, headers=headers)
+                    
+                        if response.status_code == 200:
+                            return response
+                    
+                        if response.status_code == 429:
+                            retry_after = 10
+                            if 'Retry-After' in response.headers:
+                                try:
+                                    retry_after = int(response.headers['Retry-After'])
+                                except (ValueError, TypeError):
+                                    pass
+                        
+                            rate_limit_info = response.headers.get('X-Ratelimit', '{}')
+                            logging.warning(f"Rate limit hit: {rate_limit_info}")
+                            logging.warning(f"Waiting {retry_after}s before retry ({attempt+1}/{max_retries})...")
+                            console.print(f"[yellow]Rate limit hit for {show.title}, waiting {retry_after}s (attempt {attempt+1}/{max_retries})...[/yellow]")
+                        
+                            time.sleep(retry_after)
+                            continue
+                        
+                        logging.error(f"API error: {response.status_code} - {response.text}")
+                        return None
+                
+                    logging.error(f"Failed after {max_retries} attempts for URL: {url}")
+                    return None
+
                 search_api_url = f'https://api.trakt.tv/search/tmdb/{tmdb_id}?type=show'
-
-                # Add retry logic
-                max_retries = 3
-                retry_count = 0
-                retry_delay = 1
-
-                response = requests.get(search_api_url, headers=headers)
-                while response.status_code == 429 and retry_count < max_retries:
-                    retry_count += 1
-                    logging.warning(f"Rate limit hit, retrying in {retry_delay}s...")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                    response = requests.get(search_api_url, headers=headers)
-
-                # Continue with original code logic
-                if response.status_code == 200 and response.json():
-                    trakt_id = response.json()[0]['show']['ids']['trakt']
+                search_response = make_trakt_api_call(search_api_url)
+            
+                if search_response and search_response.json():
+                    trakt_id = search_response.json()[0]['show']['ids']['trakt']
+                
                     status_url = f'https://api.trakt.tv/shows/{trakt_id}?extended=full'
-
-                    # Add retry for status request
-                    retry_count = 0
-                    retry_delay = 1
-
-                    status_response = requests.get(status_url, headers=headers)
-                    while status_response.status_code == 429 and retry_count < max_retries:
-                        retry_count += 1
-                        logging.warning(f"Rate limit hit, retrying in {retry_delay}s...")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2
-                        status_response = requests.get(status_url, headers=headers)
-
-                    if status_response.status_code == 200:
+                    status_response = make_trakt_api_call(status_url)
+                
+                    if status_response:
                         status_data = status_response.json()
                         status = status_data.get('status', '').lower()
                         text_content = 'UNKNOWN'
@@ -246,20 +251,9 @@ class TVStatusTracker:
                             back_color = self.colors['CANCELLED']
                         elif status == 'returning series':
                             next_episode_url = f'https://api.trakt.tv/shows/{trakt_id}/next_episode?extended=full'
-
-                            # Add retry for next_episode request
-                            retry_count = 0
-                            retry_delay = 1
-
-                            next_episode_response = requests.get(next_episode_url, headers=headers)
-                            while next_episode_response.status_code == 429 and retry_count < max_retries:
-                                retry_count += 1
-                                logging.warning(f"Rate limit hit, retrying in {retry_delay}s...")
-                                time.sleep(retry_delay)
-                                retry_delay *= 2
-                                next_episode_response = requests.get(next_episode_url, headers=headers)
-
-                            if next_episode_response.status_code == 200 and next_episode_response.json():
+                            next_episode_response = make_trakt_api_call(next_episode_url)
+                        
+                            if next_episode_response and next_episode_response.json():
                                 episode_data = next_episode_response.json()
                                 first_aired = episode_data.get('first_aired')
                                 episode_type = episode_data.get('episode_type', '').lower()
@@ -269,7 +263,6 @@ class TVStatusTracker:
                                     local_time = utc_time.replace(tzinfo=pytz.utc).astimezone(pytz.timezone(self.timezone))
                                     date_str = local_time.strftime('%d/%m')
 
-                                    # Handle different episode types
                                     if episode_type == 'season_finale':
                                         text_content = f'SEASON FINALE {date_str}'
                                         back_color = self.colors['SEASON_FINALE']
@@ -307,40 +300,25 @@ class TVStatusTracker:
         return None
 
     def sanitize_title_for_search(self, title):
-        """
-        Add wildcards (%) to handle special characters in title.is searches.
-        Based on empirical testing with Plex's search behavior.
-        """
-        # Handle titles that start with apostrophes (like 'Allo 'Allo!)
-        if title.startswith("'"):
-            title = "%" + title  # Add % before starting apostrophe
+        safe_title = "%" + title
+    
+        if "'" in title[1:]:  # Skip first char as we already have a leading %
+            safe_title = safe_title.replace("'", "%'%")
+    
+        if "," in safe_title:
+            safe_title = safe_title.replace(",", ",%")
+    
+        if "&" in safe_title:
+            safe_title = safe_title.replace("&", "%&%")
+    
+        if ":" in safe_title:
+            safe_title = safe_title.replace(":", "%:%")
         
-        # Replace internal apostrophes with %'%
-        if "'" in title and not title.startswith("'"):
-            parts = title.split("'")
-            # Join with %'% but be careful not to add it at the beginning if the title starts with '
-            if title.startswith("'"):
-                new_title = parts[0] + "'"
-                for part in parts[1:]:
-                    new_title += "%'%" + part
-                title = new_title
-            else:
-                title = "%'%".join(parts)
-        
-        # Handle commas by adding % before the comma
-        if ", " in title:
-            parts = title.split(", ")
-            title = "%,".join([part + "%" for part in parts[:-1]] + [parts[-1]])
-        
-        # Handle ampersands with % before and after
-        if " & " in title:
-            title = title.replace(" & ", " %&% ")
-        
-        # Special handling for specific characters that might cause issues
-        # Add more rules based on testing
-        
-        logging.debug(f"Sanitized title for search: '{title}' from original '{title}'")
-        return title
+        if "/" in safe_title:
+            safe_title = safe_title.replace("/", "%/%")
+    
+        logging.debug(f"Sanitized title for search: '{safe_title}' from original '{title}'")
+        return safe_title
 
     def create_yaml(self, library_name, headers):
         """Create YAML overlay file for a library."""
@@ -580,7 +558,6 @@ collections:
                             prev = previous_status[show.title]
                             curr = current_status[show.title]
 
-                            # Determine what changed
                             status_changed = prev['status'] != curr['status']
                             date_changed = prev['date'] != curr['date'] and curr['date']  # Only if we have a date
 
@@ -603,11 +580,11 @@ collections:
                                         status_key = 'FINAL_EPISODE'
                                     elif 'SEASON PREMIERE' in show_info['text_content']:
                                         status_key = 'SEASON_PREMIERE'
-                                    elif 'RETURNING' in show_info['text_content']:
+                                    elif 'R E T U R N I N G' in show_info['text_content']:
                                         status_key = 'RETURNING'
-                                    elif 'ENDED' in show_info['text_content']:
+                                    elif 'E N D E D' in show_info['text_content']:
                                         status_key = 'ENDED'
-                                    elif 'CANCELLED' in show_info['text_content']:
+                                    elif 'C A N C E L L E D' in show_info['text_content']:
                                         status_key = 'CANCELLED'
                                 # If only date changed, use DATE_CHANGED category
                                 elif date_changed and not status_changed:
@@ -627,8 +604,8 @@ collections:
                             # New show that wasn't processed before
                             curr = current_status[show.title]
 
-                            # Only add to notification if it has an interesting status (not just ENDED/CANCELLED)
-                            if status_text not in ['ENDED', 'CANCELLED']:
+                            if is_first_run:
+                                # On first run, only include shows with specific date or FINAL_EPISODE status
                                 status_key = None
                                 if 'AIRING' in show_info['text_content']:
                                     status_key = 'AIRING'
@@ -640,37 +617,51 @@ collections:
                                     status_key = 'FINAL_EPISODE'
                                 elif 'SEASON PREMIERE' in show_info['text_content']:
                                     status_key = 'SEASON_PREMIERE'
-                                elif 'RETURNING' in show_info['text_content']:
+                                elif 'R E T U R N I N G' in show_info['text_content']:
                                     status_key = 'RETURNING'
 
-                                # On first run, only include shows with dates or FINAL_EPISODE status
-                                if status_key:
-                                    if is_first_run:
-                                        # Check if the show has a date or is a final episode
-                                        has_date = bool(curr['date'])
+                                # Only add if it has a date or is a final episode
+                                if status_key and (bool(curr['date']) or status_key == 'FINAL_EPISODE'):
+                                    changes[status_key].append({
+                                        'title': show.title,
+                                        'prev_status': 'NEW',
+                                        'new_status': curr['status'],
+                                        'prev_date': '',
+                                        'new_date': curr['date'],
+                                        'full_text': curr['text'],
+                                        'library': library_name
+                                    })
+                            else:
+                                # Not first run - include ALL newly added shows regardless of status
+                                status_key = None
+                                if 'AIRING' in show_info['text_content']:
+                                    status_key = 'AIRING'
+                                elif 'SEASON FINALE' in show_info['text_content']:
+                                    status_key = 'SEASON_FINALE'
+                                elif 'MID SEASON FINALE' in show_info['text_content']:
+                                    status_key = 'MID_SEASON_FINALE'
+                                elif 'FINAL EPISODE' in show_info['text_content']:
+                                    status_key = 'FINAL_EPISODE'
+                                elif 'SEASON PREMIERE' in show_info['text_content']:
+                                    status_key = 'SEASON_PREMIERE'
+                                elif 'R E T U R N I N G' in show_info['text_content']:
+                                    status_key = 'RETURNING'
+                                elif 'E N D E D' in show_info['text_content']:
+                                    status_key = 'ENDED'
+                                elif 'C A N C E L L E D' in show_info['text_content']:
+                                    status_key = 'CANCELLED'
 
-                                        # Only add if it has a date or is a final episode
-                                        if has_date or status_key == 'FINAL_EPISODE':
-                                            changes[status_key].append({
-                                                'title': show.title,
-                                                'prev_status': 'NEW',
-                                                'new_status': curr['status'],
-                                                'prev_date': '',
-                                                'new_date': curr['date'],
-                                                'full_text': curr['text'],
-                                                'library': library_name
-                                            })
-                                    else:
-                                        # Not first run, include all status changes
-                                        changes[status_key].append({
-                                            'title': show.title,
-                                            'prev_status': 'NEW',
-                                            'new_status': curr['status'],
-                                            'prev_date': '',
-                                            'new_date': curr['date'],
-                                            'full_text': curr['text'],
-                                            'library': library_name
-                                        })
+                                # Add all newly added shows to notifications
+                                if status_key:
+                                    changes[status_key].append({
+                                        'title': show.title,
+                                        'prev_status': 'NEW',
+                                        'new_status': curr['status'],
+                                        'prev_date': '',
+                                        'new_date': curr['date'],
+                                        'full_text': curr['text'],
+                                        'library': library_name
+                                    })
 
                         # Format the title for YAML key
                         formatted_title = show.title.replace(' ', '_')
