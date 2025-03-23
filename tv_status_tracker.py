@@ -572,10 +572,10 @@ collections:
                                 if status_changed:
                                     if 'AIRING' in show_info['text_content']:
                                         status_key = 'AIRING'
-                                    elif 'SEASON FINALE' in show_info['text_content']:
-                                        status_key = 'SEASON_FINALE'
                                     elif 'MID SEASON FINALE' in show_info['text_content']:
                                         status_key = 'MID_SEASON_FINALE'
+                                    elif 'SEASON FINALE' in show_info['text_content']:
+                                        status_key = 'SEASON_FINALE'
                                     elif 'FINAL EPISODE' in show_info['text_content']:
                                         status_key = 'FINAL_EPISODE'
                                     elif 'SEASON PREMIERE' in show_info['text_content']:
@@ -609,10 +609,10 @@ collections:
                                 status_key = None
                                 if 'AIRING' in show_info['text_content']:
                                     status_key = 'AIRING'
-                                elif 'SEASON FINALE' in show_info['text_content']:
-                                    status_key = 'SEASON_FINALE'
                                 elif 'MID SEASON FINALE' in show_info['text_content']:
                                     status_key = 'MID_SEASON_FINALE'
+                                elif 'SEASON FINALE' in show_info['text_content']:
+                                    status_key = 'SEASON_FINALE'
                                 elif 'FINAL EPISODE' in show_info['text_content']:
                                     status_key = 'FINAL_EPISODE'
                                 elif 'SEASON PREMIERE' in show_info['text_content']:
@@ -636,10 +636,10 @@ collections:
                                 status_key = None
                                 if 'AIRING' in show_info['text_content']:
                                     status_key = 'AIRING'
-                                elif 'SEASON FINALE' in show_info['text_content']:
-                                    status_key = 'SEASON_FINALE'
                                 elif 'MID SEASON FINALE' in show_info['text_content']:
                                     status_key = 'MID_SEASON_FINALE'
+                                elif 'SEASON FINALE' in show_info['text_content']:
+                                    status_key = 'SEASON_FINALE'
                                 elif 'FINAL EPISODE' in show_info['text_content']:
                                     status_key = 'FINAL_EPISODE'
                                 elif 'SEASON PREMIERE' in show_info['text_content']:
