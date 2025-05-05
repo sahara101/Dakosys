@@ -261,7 +261,15 @@ class TVStatusTracker:
                                 if first_aired:
                                     utc_time = datetime.strptime(first_aired, '%Y-%m-%dT%H:%M:%S.000Z')
                                     local_time = utc_time.replace(tzinfo=pytz.utc).astimezone(pytz.timezone(self.timezone))
-                                    date_str = local_time.strftime('%d/%m')
+                                    
+                                    # Determine date format based on config
+                                    user_preference = self.config.get('date_format', 'DD/MM').upper()
+                                    if user_preference == 'MM/DD':
+                                        strftime_pattern = '%m/%d'
+                                    else: # Default to DD/MM
+                                        strftime_pattern = '%d/%m'
+                                        
+                                    date_str = local_time.strftime(strftime_pattern)
 
                                     if episode_type == 'season_finale':
                                         text_content = f'SEASON FINALE {date_str}'

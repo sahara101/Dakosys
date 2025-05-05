@@ -32,7 +32,7 @@ def test_discord_notification(webhook_url):
                 {
                     "title": "DAKOSYS Notification Test",
                     "description": "Your Discord notifications are configured correctly! 🎉",
-                    "color": 5814783,  # Green color
+                    "color": 5814783,  
                     "footer": {
                         "text": "DAKOSYS - Setup"
                     },
@@ -64,11 +64,9 @@ def setup_service_scheduler(config, service_name):
     """Configure scheduler for a specific service."""
     console.print(f"\n[bold cyan]{service_name.replace('_', ' ').title()} Schedule[/bold cyan]")
     
-    # Make sure the scheduler section exists
     if 'scheduler' not in config:
         config['scheduler'] = {}
     
-    # Create service-specific schedule section
     if service_name not in config['scheduler']:
         config['scheduler'][service_name] = {}
     
@@ -111,7 +109,6 @@ def setup_anime_episode_type(config):
     console.print("\n[bold cyan]Anime Episode Type Tracker[/bold cyan]")
     console.print("[yellow]This service tracks anime episodes by type (filler, manga canon, etc.) and creates Trakt lists for each type.[/yellow]")
     
-    # Enable the service
     enable_service = click.confirm("Enable Anime Episode Type service?", 
                                   default=config.get('services', {}).get('anime_episode_type', {}).get('enabled', False))
     
@@ -120,7 +117,6 @@ def setup_anime_episode_type(config):
 
     config['services']['anime_episode_type']['enabled'] = enable_service
 
-    # Add overlay defaults
     if 'overlay' not in config['services']['anime_episode_type']:
         config['services']['anime_episode_type']['overlay'] = {
             'horizontal_offset': 0,
@@ -580,9 +576,28 @@ def run_setup():
     default_timezone = time_module.tzname[0]
     timezone = click.prompt("Enter your timezone", default=default_timezone)
 
+    # Display Settings
+    console.print("\n[bold]Display Settings[/bold]")
+    # Load existing date_format if config exists, otherwise use default
+    existing_config = {}
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as file:
+                existing_config = yaml.safe_load(file) or {}
+        except Exception:
+            pass # Ignore errors if file is invalid, will use default
+            
+    default_date_format = existing_config.get('date_format', 'DD/MM')
+    date_format_preference = click.prompt(
+        "Preferred date format for display (e.g., in TV Status Tracker)",
+        type=click.Choice(['DD/MM', 'MM/DD'], case_sensitive=False),
+        default=default_date_format
+    )
+
     # Initialize config with defaults
     config = {
         'timezone': timezone,
+        'date_format': date_format_preference.upper(), # Store in uppercase for consistency
         'plex': {
             'libraries': {
                 'anime': [],
