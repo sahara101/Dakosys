@@ -57,7 +57,6 @@ class TVStatusTracker:
             if config['plex']['libraries'].get('tv', []):
                 self.libraries.extend(config['plex']['libraries']['tv'])
 
-        # Fallback to legacy config format if needed
         elif 'library' in config['plex']:
             self.libraries.append(config['plex']['library'])
 
@@ -76,72 +75,58 @@ class TVStatusTracker:
         # Get font path from config
         font_path = self.tv_status_config.get('font_path')
         if not font_path or not os.path.exists(font_path):
-            # Try to find the font in Kometa config directory
             kometa_config = os.path.dirname(self.collections_dir)
             fallback_path = os.path.join(kometa_config, "fonts", "Juventus-Fans-Bold.ttf")
 
             if os.path.exists(fallback_path):
                 font_path = fallback_path
-            # If not found there, use the container font
             elif os.path.exists('/app/fonts/Juventus-Fans-Bold.ttf'):
                 font_path = '/app/fonts/Juventus-Fans-Bold.ttf'
             else:
                 logger.warning(f"Font not found. Using system default.")
-                # Use system default (should be available in Debian-based containers)
                 font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
         self.font_path = font_path
         self.font_path_yaml = "config/fonts/Juventus-Fans-Bold.ttf"
         logger.info(f"Using font: {self.font_path}")
 
-        # Set up data storage
         self.airing_shows = []
 
-        # Set token file path
         self.token_file = os.path.join(self.data_dir, "trakt_token.json")
 
         self.overlay_config = self.tv_status_config.get('overlay', {})
 
-        # YAML template for file naming
         self.yaml_file_template = "overlay_tv_status_{library}.yml"
 
     def setup_logging(self):
         """Set up logging for the TV Status Tracker."""
-        # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
 
         log_file = os.path.join(self.data_dir, "tv_status_tracker.log")
 
-        # Use rotating file handler
         from logging.handlers import RotatingFileHandler
 
-        # Get logger
         logger = logging.getLogger()
         logger.setLevel(logging.DEBUG)
 
-        # Clear any existing handlers
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
 
-        # Create rotating handler
         handler = RotatingFileHandler(
             log_file,
             maxBytes=5*1024*1024,  # 5MB
             backupCount=3
         )
 
-        # Set format
         formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
         handler.setFormatter(formatter)
 
-        # Add handler to logger
         logger.addHandler(handler)
 
         logging.debug("TV Status Tracker started.")
 
     def get_trakt_token(self):
         """Get or refresh Trakt API token."""
-        # Import the token handling code from trakt_auth module
         import trakt_auth
         access_token = trakt_auth.ensure_trakt_auth()
         return access_token
@@ -171,9 +156,8 @@ class TVStatusTracker:
         if response.status_code == 200:
             for lst in response.json():
                 if lst['name'].lower() == list_name.lower():
-                    return lst['ids']['slug']  # List exists
+                    return lst['ids']['slug']  
 
-        # Create the list if it doesn't exist
         privacy = self.config.get('lists', {}).get('default_privacy', 'private')
         create_payload = {
             "name": list_name,
@@ -185,7 +169,7 @@ class TVStatusTracker:
         create_resp = requests.post(lists_url, json=create_payload, headers=headers)
         if create_resp.status_code in [200, 201]:
             console.print(f"[green]Created Trakt list: {list_name}[/green]")
-            return self.get_or_create_trakt_list(list_name, headers)  # Recursively get the newly created list
+            return self.get_or_create_trakt_list(list_name, headers)  
 
         logging.error(f"Failed to create Trakt list: {create_resp.status_code} - {create_resp.text}")
         return None
@@ -262,11 +246,10 @@ class TVStatusTracker:
                                     utc_time = datetime.strptime(first_aired, '%Y-%m-%dT%H:%M:%S.000Z')
                                     local_time = utc_time.replace(tzinfo=pytz.utc).astimezone(pytz.timezone(self.timezone))
                                     
-                                    # Determine date format based on config
                                     user_preference = self.config.get('date_format', 'DD/MM').upper()
                                     if user_preference == 'MM/DD':
                                         strftime_pattern = '%m/%d'
-                                    else: # Default to DD/MM
+                                    else: 
                                         strftime_pattern = '%d/%m'
                                         
                                     date_str = local_time.strftime(strftime_pattern)
@@ -308,9 +291,9 @@ class TVStatusTracker:
         return None
 
     def sanitize_title_for_search(self, title):
-        safe_title = "%" + title
+        safe_title = title  
     
-        if "'" in title[1:]:  # Skip first char as we already have a leading %
+        if "'" in safe_title:  
             safe_title = safe_title.replace("'", "%'%")
     
         if "," in safe_title:
@@ -325,7 +308,7 @@ class TVStatusTracker:
         if "/" in safe_title:
             safe_title = safe_title.replace("/", "%/%")
     
-        logging.debug(f"Sanitized title for search: '{safe_title}' from original '{title}'")
+        logging.debug(f"Sanitized title for search (no leading %): '{safe_title}' from original '{title}'")
         return safe_title
 
     def create_yaml(self, library_name, headers):
@@ -345,7 +328,6 @@ class TVStatusTracker:
                 if show_info:
                     formatted_title = show.title.replace(' ', '_')
                     
-                    # Create a safe version of the title with wildcards for special characters
                     safe_title = self.sanitize_title_for_search(show.title)
                     logging.debug(f"Using sanitized title for search: '{safe_title}'")
                     
@@ -395,11 +377,9 @@ collections:
     sync_mode: sync
 """
         for library_name in self.libraries:
-            # Format the filename
             yaml_filename = f"{library_name.lower().replace(' ', '-')}-next-airing.yml"
             yaml_filepath = os.path.join(self.collections_dir, yaml_filename)
 
-            # Check if the file exists
             if not os.path.exists(yaml_filepath):
                 console.print(f"[blue]Creating YAML collections file for {library_name}[/blue]")
                 try:
@@ -428,7 +408,6 @@ collections:
 
         if response.status_code == 200:
             current_shows = response.json()
-            # Extract Trakt IDs of shows currently in the list
             current_trakt_ids = [item['show']['ids']['trakt'] for item in current_shows if item.get('show')]
             return current_trakt_ids
         else:
@@ -441,7 +420,6 @@ collections:
         current_trakt_ids = self.fetch_current_trakt_list_shows(list_slug, headers)
         new_trakt_ids = [int(show['trakt_id']) for show in airing_shows]
 
-        # Check if the lists match (including order)
         if current_trakt_ids == new_trakt_ids:
             console.print("[yellow]No update necessary for the Trakt list[/yellow]")
             return
@@ -449,7 +427,6 @@ collections:
         list_items_url = f'https://api.trakt.tv/users/{user_slug}/lists/{list_slug}/items'
         console.print("[blue]Updating Trakt list with airing shows...[/blue]")
 
-        # First, remove all existing items if there are any
         if current_trakt_ids:
             console.print(f"[dim]Removing {len(current_trakt_ids)} existing items from list[/dim]")
             remove_payload = {"shows": [{"ids": {"trakt": trakt_id}} for trakt_id in current_trakt_ids]}
@@ -459,9 +436,8 @@ collections:
                 logging.error(f"Failed to remove items from list: {remove_response.status_code} - {remove_response.text}")
                 console.print("[red]Failed to remove existing items from list[/red]")
 
-            time.sleep(1)  # Respect rate limits
+            time.sleep(1)  
 
-        # Then, add the new list of shows
         if new_trakt_ids:
             console.print(f"[dim]Adding {len(new_trakt_ids)} new items to list[/dim]")
             shows_payload = {"shows": [{"ids": {"trakt": trakt_id}} for trakt_id in new_trakt_ids]}
@@ -473,13 +449,12 @@ collections:
                 logging.error(f"Failed to add items to list: {add_response.status_code} - {add_response.text}")
                 console.print(f"[red]Failed to update Trakt list. Response: {add_response.text}[/red]")
 
-            time.sleep(1)  # Respect rate limits
+            time.sleep(1)  
 
     def run(self):
         """Run the TV Status Tracker."""
         console.print("[bold]Starting TV/Anime Status Tracker...[/bold]")
 
-        # Check if output directories exist
         if not os.path.exists(self.yaml_output_dir):
             console.print(f"[red]Error: YAML output directory does not exist: {self.yaml_output_dir}[/red]")
             logging.error(f"YAML output directory does not exist: {self.yaml_output_dir}")
@@ -490,7 +465,6 @@ collections:
             logging.error(f"Collections directory does not exist: {self.collections_dir}")
             return False
 
-        # Get Trakt token
         access_token = self.get_trakt_token()
         if not access_token:
             console.print("[red]Failed to get Trakt token[/red]")
@@ -498,7 +472,6 @@ collections:
 
         headers = self.get_trakt_headers(access_token)
 
-        # Dictionary to track all changes (both status and date)
         changes = {
             'AIRING': [],
             'SEASON_FINALE': [],
@@ -508,14 +481,12 @@ collections:
             'RETURNING': [],
             'ENDED': [],
             'CANCELLED': [],
-            'DATE_CHANGED': []  # Special category for date-only changes
+            'DATE_CHANGED': []  
         }
 
-        # Load previous status from cache file if it exists
         previous_status = {}
         status_cache_file = os.path.join(self.data_dir, "tv_status_cache.json")
 
-        # Check if this is the first run
         is_first_run = not os.path.exists(status_cache_file)
 
         try:
@@ -525,10 +496,8 @@ collections:
         except Exception as e:
             logging.error(f"Error loading previous status cache: {str(e)}")
 
-        # New status will be saved at the end
         current_status = {}
 
-        # Process each library
         total_shows_processed = 0
 
         for library_name in self.libraries:
@@ -543,40 +512,34 @@ collections:
                     show_info = self.process_show(show, headers)
 
                     if show_info:
-                        # Extract status and date information
                         text_parts = show_info['text_content'].split()
-                        status_text = text_parts[0]  # First word is usually the status
+                        status_text = text_parts[0]  
 
-                        # Extract date if present
                         date_str = ''
                         for part in text_parts:
                             if '/' in part and any(c.isdigit() for c in part):
                                 date_str = part
                                 break
 
-                        # Store show status
                         current_status[show.title] = {
                             'status': status_text,
                             'date': date_str,
                             'text': show_info['text_content']
                         }
 
-                        # Check if status or date changed from previous run
                         if show.title in previous_status:
                             prev = previous_status[show.title]
                             curr = current_status[show.title]
 
                             status_changed = prev['status'] != curr['status']
-                            date_changed = prev['date'] != curr['date'] and curr['date']  # Only if we have a date
+                            date_changed = prev['date'] != curr['date'] and curr['date']  
 
                             if status_changed or date_changed:
                                 logging.debug(f"Change detected for {show.title}: Status changed: {status_changed}, Date changed: {date_changed}")
                                 logging.debug(f"Previous: {prev['status']} ({prev['date']}), Current: {curr['status']} ({curr['date']})")
 
-                                # Find the appropriate category
                                 status_key = None
 
-                                # If status changed, use the new status category
                                 if status_changed:
                                     if 'AIRING' in show_info['text_content']:
                                         status_key = 'AIRING'
@@ -594,7 +557,6 @@ collections:
                                         status_key = 'ENDED'
                                     elif 'C A N C E L L E D' in show_info['text_content']:
                                         status_key = 'CANCELLED'
-                                # If only date changed, use DATE_CHANGED category
                                 elif date_changed and not status_changed:
                                     status_key = 'DATE_CHANGED'
 
@@ -609,11 +571,9 @@ collections:
                                         'library': library_name
                                     })
                         else:
-                            # New show that wasn't processed before
                             curr = current_status[show.title]
 
                             if is_first_run:
-                                # On first run, only include shows with specific date or FINAL_EPISODE status
                                 status_key = None
                                 if 'AIRING' in show_info['text_content']:
                                     status_key = 'AIRING'
@@ -628,7 +588,6 @@ collections:
                                 elif 'R E T U R N I N G' in show_info['text_content']:
                                     status_key = 'RETURNING'
 
-                                # Only add if it has a date or is a final episode
                                 if status_key and (bool(curr['date']) or status_key == 'FINAL_EPISODE'):
                                     changes[status_key].append({
                                         'title': show.title,
@@ -640,7 +599,6 @@ collections:
                                         'library': library_name
                                     })
                             else:
-                                # Not first run - include ALL newly added shows regardless of status
                                 status_key = None
                                 if 'AIRING' in show_info['text_content']:
                                     status_key = 'AIRING'
@@ -659,7 +617,6 @@ collections:
                                 elif 'C A N C E L L E D' in show_info['text_content']:
                                     status_key = 'CANCELLED'
 
-                                # Add all newly added shows to notifications
                                 if status_key:
                                     changes[status_key].append({
                                         'title': show.title,
@@ -671,13 +628,10 @@ collections:
                                         'library': library_name
                                     })
 
-                        # Format the title for YAML key
                         formatted_title = show.title.replace(' ', '_')
                         
-                        # Create a safe version of the title with wildcards for special characters
                         safe_title = self.sanitize_title_for_search(show.title)
                         
-                        # Add to YAML data
                         yaml_data['overlays'][f'{library_name}_Status_{formatted_title}'] = {
                             'overlay': {
                                 'back_color': show_info['back_color'],
@@ -711,10 +665,8 @@ collections:
                 logging.error(f"Error processing library {library_name}: {str(e)}")
                 console.print(f"[red]Error processing library {library_name}: {str(e)}[/red]")
 
-        # Create collection files
         self.create_yaml_collections()
 
-        # Update Trakt list with airing shows
         list_name = "Next Airing"
         list_slug = self.get_or_create_trakt_list(list_name, headers)
 
@@ -725,14 +677,12 @@ collections:
         elif not self.airing_shows:
             console.print("[yellow]No airing shows found to add to Trakt list[/yellow]")
 
-        # Save current status for next run
         try:
             with open(status_cache_file, 'w') as f:
                 json.dump(current_status, f)
         except Exception as e:
             logging.error(f"Error saving status cache: {str(e)}")
 
-        # Send notifications if there are changes and not running in quiet mode
         have_changes = any(len(shows) > 0 for status, shows in changes.items())
         if have_changes and not os.environ.get('QUIET_MODE') == 'true':
             try:
@@ -747,7 +697,6 @@ collections:
 
 def run_tv_status_tracker(config=None):
     """Run the TV Status Tracker as a standalone function."""
-    # Load config if not provided
     if not config:
         config_path = "/app/config/config.yaml" if os.environ.get('RUNNING_IN_DOCKER') == 'true' else "config/config.yaml"
         try:
@@ -757,15 +706,12 @@ def run_tv_status_tracker(config=None):
             print(f"Error loading configuration: {str(e)}")
             return False
 
-    # Check if TV Status Tracker is enabled
     if not config.get('services', {}).get('tv_status_tracker', {}).get('enabled', False):
         print("TV/Anime Status Tracker is disabled in configuration.")
         return False
 
-    # Run the tracker
     tracker = TVStatusTracker(config)
     return tracker.run()
 
-# Allow running directly
 if __name__ == "__main__":
     run_tv_status_tracker()
