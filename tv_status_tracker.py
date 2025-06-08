@@ -18,10 +18,8 @@ from datetime import datetime
 from plexapi.server import PlexServer
 from rich.console import Console
 
-# Initialize console for rich output
 console = Console()
 
-# Initialize logger
 logger = logging.getLogger("tv_status_tracker")
 
 class TVStatusTracker:
@@ -31,48 +29,37 @@ class TVStatusTracker:
         """Initialize with DAKOSYS configuration."""
         self.config = config
 
-        # Set up data storage first (before setup_logging is called)
         self.data_dir = "data"
         if os.environ.get('RUNNING_IN_DOCKER') == 'true':
             self.data_dir = "/app/data"
 
-        # Ensure data directory exists
         os.makedirs(self.data_dir, exist_ok=True)
 
-        # Now it's safe to call setup_logging as self.data_dir is defined
         self.setup_logging()
 
-        # Extract configuration values
         self.plex_url = config['plex']['url']
         self.plex_token = config['plex']['token']
 
-        # Get libraries to process
         self.libraries = []
         if 'libraries' in config['plex']:
-            # Add anime libraries if configured to use them for TV status
             if config['plex']['libraries'].get('anime', []):
                 self.libraries.extend(config['plex']['libraries']['anime'])
 
-            # Add TV libraries
             if config['plex']['libraries'].get('tv', []):
                 self.libraries.extend(config['plex']['libraries']['tv'])
 
         elif 'library' in config['plex']:
             self.libraries.append(config['plex']['library'])
 
-        # Set timezone
         self.timezone = config['timezone']
 
-        # Set Trakt configuration
         self.trakt_config = config['trakt']
 
-        # Set file paths for TV Status Tracker
         self.tv_status_config = config['services']['tv_status_tracker']
         self.colors = self.tv_status_config.get('colors', {})
         self.yaml_output_dir = config.get('kometa_config', {}).get('yaml_output_dir', '/kometa/config/overlays')
         self.collections_dir = config.get('kometa_config', {}).get('collections_dir', '/kometa/config/collections')
 
-        # Get font path from config
         font_path = self.tv_status_config.get('font_path')
         if not font_path or not os.path.exists(font_path):
             kometa_config = os.path.dirname(self.collections_dir)
@@ -87,14 +74,33 @@ class TVStatusTracker:
                 font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
 
         self.font_path = font_path
-        self.font_path_yaml = "config/fonts/Juventus-Fans-Bold.ttf"
-        logger.info(f"Using font: {self.font_path}")
+        kometa_conf = self.config.get('kometa_config', {})
+        self.overlay_config = self.tv_status_config.get('overlay', {})
+
+        logger.debug(f"Overlay config loaded: {self.overlay_config}")
+        font_path_from_get = self.overlay_config.get('font_path')
+        logger.debug(f"Font path from get: '{font_path_from_get}' (type: {type(font_path_from_get)})") 
+        self.font_path_yaml = font_path_from_get
+        if not self.font_path_yaml:
+            font_dir = kometa_conf.get('font_directory', 'config/fonts')
+            font_name = self.overlay_config.get('font_name', 'Juventus-Fans-Bold.ttf')
+            self.font_path_yaml = os.path.join(font_dir, font_name)
+
+        asset_dir = kometa_conf.get('asset_directory', 'config/assets')
+        gradient_name = self.overlay_config.get('gradient_name', 'gradient_top.png')
+        self.gradient_image_path_yaml = os.path.join(asset_dir, gradient_name)
+        
+        logger.info(f"Using font for script (fallback logic): {self.font_path}")
+        logger.info(f"Using font for Kometa YAML: {self.font_path_yaml}")
+        logger.info(f"Using gradient for Kometa YAML: {self.gradient_image_path_yaml}")
 
         self.airing_shows = []
 
         self.token_file = os.path.join(self.data_dir, "trakt_token.json")
 
-        self.overlay_config = self.tv_status_config.get('overlay', {})
+        self.overlay_style = self.overlay_config.get('overlay_style', 'background_color')
+        self.apply_gradient_background = self.overlay_config.get('apply_gradient_background', False)
+
 
         self.yaml_file_template = "overlay_tv_status_{library}.yml"
 
@@ -114,7 +120,7 @@ class TVStatusTracker:
 
         handler = RotatingFileHandler(
             log_file,
-            maxBytes=5*1024*1024,  # 5MB
+            maxBytes=5*1024*1024, 
             backupCount=3
         )
 
@@ -156,7 +162,7 @@ class TVStatusTracker:
         if response.status_code == 200:
             for lst in response.json():
                 if lst['name'].lower() == list_name.lower():
-                    return lst['ids']['slug']  
+                    return lst['ids']['slug'] 
 
         privacy = self.config.get('lists', {}).get('default_privacy', 'private')
         create_payload = {
@@ -169,7 +175,7 @@ class TVStatusTracker:
         create_resp = requests.post(lists_url, json=create_payload, headers=headers)
         if create_resp.status_code in [200, 201]:
             console.print(f"[green]Created Trakt list: {list_name}[/green]")
-            return self.get_or_create_trakt_list(list_name, headers)  
+            return self.get_or_create_trakt_list(list_name, headers) 
 
         logging.error(f"Failed to create Trakt list: {create_resp.status_code} - {create_resp.text}")
         return None
@@ -183,33 +189,50 @@ class TVStatusTracker:
             if 'tmdb://' in guid.id:
                 tmdb_id = guid.id.split('//')[1]
 
-                def make_trakt_api_call(url, max_retries=5):
+                def make_trakt_api_call(url, max_retries=5, initial_wait=5, timeout_seconds=20):
+                    current_wait = initial_wait
                     for attempt in range(max_retries):
-                        response = requests.get(url, headers=headers)
+                        try:
+                            response = requests.get(url, headers=headers, timeout=timeout_seconds)
                     
-                        if response.status_code == 200:
-                            return response
+                            if response.status_code == 200: 
+                                return response 
                     
-                        if response.status_code == 429:
-                            retry_after = 10
-                            if 'Retry-After' in response.headers:
-                                try:
-                                    retry_after = int(response.headers['Retry-After'])
-                                except (ValueError, TypeError):
-                                    pass
+                            if response.status_code == 429: 
+                                retry_after = 10 
+                                if 'Retry-After' in response.headers:
+                                    try:
+                                        retry_after = int(response.headers['Retry-After'])
+                                    except (ValueError, TypeError):
+                                        pass 
                         
-                            rate_limit_info = response.headers.get('X-Ratelimit', '{}')
-                            logging.warning(f"Rate limit hit: {rate_limit_info}")
-                            logging.warning(f"Waiting {retry_after}s before retry ({attempt+1}/{max_retries})...")
-                            console.print(f"[yellow]Rate limit hit for {show.title}, waiting {retry_after}s (attempt {attempt+1}/{max_retries})...[/yellow]")
+                                rate_limit_info = response.headers.get('X-Ratelimit', '{}')
+                                logging.warning(f"Rate limit hit for {url}: {rate_limit_info}")
+                                logging.warning(f"Waiting {retry_after}s before retry ({attempt+1}/{max_retries})...")
+                                console.print(f"[yellow]Rate limit hit for {show.title}, waiting {retry_after}s (attempt {attempt+1}/{max_retries})...[/yellow]")
+                                time.sleep(retry_after)
+                                continue 
+                            
+                            logging.error(f"API error (HTTP {response.status_code}) for {url}: {response.text}")
+                            return None 
+
+                        except requests.exceptions.Timeout as e:
+                            logging.warning(f"Timeout connecting to {url} (attempt {attempt+1}/{max_retries}): {e}")
+                        except requests.exceptions.ConnectionError as e: 
+                            logging.warning(f"ConnectionError for {url} (attempt {attempt+1}/{max_retries}): {e}")
+                        except requests.exceptions.RequestException as e: 
+                            logging.warning(f"RequestException for {url} (attempt {attempt+1}/{max_retries}): {e}")
                         
-                            time.sleep(retry_after)
-                            continue
-                        
-                        logging.error(f"API error: {response.status_code} - {response.text}")
-                        return None
+                        if attempt < max_retries - 1:
+                            logging.info(f"Waiting {current_wait}s before retrying {url} due to network/request issue...")
+                            console.print(f"[yellow]Network/request issue for {show.title}. Waiting {current_wait}s before retry ({attempt+1}/{max_retries})...[/yellow]")
+                            time.sleep(current_wait)
+                            current_wait = min(current_wait * 2, 60) 
+                        else:
+                            logging.error(f"Failed after {max_retries} attempts for URL: {url} due to persistent network/request issues.")
+                            return None 
                 
-                    logging.error(f"Failed after {max_retries} attempts for URL: {url}")
+                    logging.error(f"Failed after {max_retries} attempts for URL: {url} (exhausted all retries).")
                     return None
 
                 search_api_url = f'https://api.trakt.tv/search/tmdb/{tmdb_id}?type=show'
@@ -532,7 +555,7 @@ collections:
                             curr = current_status[show.title]
 
                             status_changed = prev['status'] != curr['status']
-                            date_changed = prev['date'] != curr['date'] and curr['date']  
+                            date_changed = prev['date'] != curr['date'] and curr['date'] 
 
                             if status_changed or date_changed:
                                 logging.debug(f"Change detected for {show.title}: Status changed: {status_changed}, Date changed: {date_changed}")
@@ -632,27 +655,84 @@ collections:
                         
                         safe_title = self.sanitize_title_for_search(show.title)
                         
-                        yaml_data['overlays'][f'{library_name}_Status_{formatted_title}'] = {
-                            'overlay': {
-                                'back_color': show_info['back_color'],
-                                'back_height': 90,
-                                'back_width': 1000,
-                                'color': '#FFFFFF',
-                                'font': show_info['font'],
-                                'font_size': 70,
-                                'horizontal_align': 'center',
-                                'horizontal_offset': 0,
-                                'name': f"text({show_info['text_content']})",
-                                'vertical_align': 'top',
-                                'vertical_offset': 0,
-                            },
-                            'plex_search': {
-                                'all': {
-                                    'title.is': safe_title
-                                }
+                        overlay_details = {
+                            'font': show_info['font'],
+                            'font_size': self.overlay_config.get('font_size', 70),
+                            'horizontal_align': self.overlay_config.get('horizontal_align', 'center'),
+                            'horizontal_offset': self.overlay_config.get('horizontal_offset', 0),
+                            'name': f"text({show_info['text_content']})",
+                            'vertical_align': self.overlay_config.get('vertical_align', 'top'),
+                            'vertical_offset': self.overlay_config.get('vertical_offset', 0),
+                            'back_width': self.overlay_config.get('back_width', 1000),
+                            'back_height': self.overlay_config.get('back_height', 90)
+                        }
+
+                        plex_search_block = {
+                            'all': {
+                                'title.is': safe_title
                             }
                         }
-                        logging.debug(f"Processed {show.title} with status {show_info['text_content']}.")
+
+                        if self.apply_gradient_background:
+                            gradient_overlay_key = f'{library_name}_StatusGradient_{formatted_title}'
+                            yaml_data['overlays'][gradient_overlay_key] = {
+                                'overlay': {
+                                    'file': self.gradient_image_path_yaml,
+                                    'height': self.overlay_config.get('back_height', 90),
+                                    'horizontal_align': self.overlay_config.get('horizontal_align', "center"),
+                                    'horizontal_offset': self.overlay_config.get('horizontal_offset', 0),
+                                    'name': f'status_gradient_for_{formatted_title}',
+                                    'order': 10,
+                                    'vertical_align': self.overlay_config.get('vertical_align', "top"),
+                                    'vertical_offset': self.overlay_config.get('vertical_offset', 0),
+                                    'width': self.overlay_config.get('back_width', 1000)
+                                },
+                                'plex_search': plex_search_block
+                            }
+                            logging.debug(f"Added gradient layer for {show.title}")
+
+                        if self.overlay_style == 'colored_text':
+                            text_overlay_key = f'{library_name}_StatusText_{formatted_title}'
+                            text_overlay_details = {
+                                'name': f"text({show_info['text_content']})",
+                                'font': show_info['font'],
+                                'font_size': self.overlay_config.get('font_size', 70),
+                                'font_color': show_info['back_color'], 
+                                'back_color': '#00000000', 
+                                'horizontal_align': self.overlay_config.get('horizontal_align', 'center'),
+                                'vertical_align': self.overlay_config.get('vertical_align', 'top'),
+                                'horizontal_offset': self.overlay_config.get('horizontal_offset', 0),
+                                'vertical_offset': self.overlay_config.get('vertical_offset', 0),
+                                'back_width': self.overlay_config.get('back_width', 1000),
+                                'back_height': self.overlay_config.get('back_height', 90),
+                                'order': 20 
+                            }
+                            yaml_data['overlays'][text_overlay_key] = {
+                                'overlay': text_overlay_details,
+                                'plex_search': plex_search_block
+                            }
+                            logging.debug(f"Added text layer for {show.title} with status {show_info['text_content']}.")
+
+                        elif self.overlay_style == 'background_color':
+                            overlay_key = f'{library_name}_Status_{formatted_title}'
+                            overlay_details = {
+                                'font': show_info['font'],
+                                'font_size': self.overlay_config.get('font_size', 70),
+                                'horizontal_align': self.overlay_config.get('horizontal_align', 'center'),
+                                'horizontal_offset': self.overlay_config.get('horizontal_offset', 0),
+                                'name': f"text({show_info['text_content']})",
+                                'vertical_align': self.overlay_config.get('vertical_align', 'top'),
+                                'vertical_offset': self.overlay_config.get('vertical_offset', 0),
+                                'back_width': self.overlay_config.get('back_width', 1000),
+                                'back_height': self.overlay_config.get('back_height', 90),
+                                'color': self.overlay_config.get('color', '#FFFFFF'), 
+                                'back_color': show_info['back_color'] 
+                            }
+                            yaml_data['overlays'][overlay_key] = {
+                                'overlay': overlay_details,
+                                'plex_search': plex_search_block
+                            }
+                            logging.debug(f"Processed {show.title} with status {show_info['text_content']} (background_color style).")
 
                 yaml_file_path = os.path.join(self.yaml_output_dir, self.yaml_file_template.format(library=library_name.lower()))
                 with open(yaml_file_path, 'w') as file:

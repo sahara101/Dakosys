@@ -15,10 +15,8 @@ import requests
 from shared_utils import setup_rotating_logger
 from datetime import datetime
 
-# Initialize console for rich output
 console = Console()
 
-# Set up data directory and logging
 DATA_DIR = "data" if os.environ.get('RUNNING_IN_DOCKER') != 'true' else "/app/data"
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
@@ -26,10 +24,8 @@ if not os.path.exists(DATA_DIR):
 log_file = os.path.join(DATA_DIR, "size_overlay.log")
 logger = setup_rotating_logger("size_overlay", log_file)
 
-# Global configuration
 CONFIG = None
 
-# File to store previous sizes for change detection
 SIZES_FILE = os.path.join(DATA_DIR, "previous_sizes.json")
 
 def extract_key(full_key):
@@ -125,20 +121,17 @@ def process_movie_library(plex, library):
         processed_movies = 0
         total_size_gb = 0
         
-        # Get count for progress logging
         all_movies = library_section.all()
         total_movies = len(all_movies)
         logger.info(f"Found {total_movies} movies to process")
         
         for movie in all_movies:
             try:
-                # Calculate total size for all media parts
                 total_size_bytes = 0
                 for media in movie.media:
                     for part in media.parts:
                         total_size_bytes += part.size
                 
-                # Convert to GB and round to 2 decimal places
                 size_gb = round(total_size_bytes / 1073741824, 2)
                 total_size_gb += size_gb
                 
@@ -182,14 +175,12 @@ def process_show_library(plex, library):
         total_size_gb = 0
         total_episodes = 0
         
-        # Get count for progress logging
         all_shows = library_section.all()
         total_shows = len(all_shows)
         logger.info(f"Found {total_shows} shows to process")
         
         for show in all_shows:
             try:
-                # Calculate total size for all episodes
                 total_size_bytes = 0
                 episode_count = 0
                 
@@ -200,7 +191,6 @@ def process_show_library(plex, library):
                             for part in media.parts:
                                 total_size_bytes += part.size
                 
-                # Convert to GB and round to 2 decimal places
                 size_gb = round(total_size_bytes / 1073741824, 2)
                 total_size_gb += size_gb
                 total_episodes += episode_count
@@ -226,26 +216,20 @@ def process_show_library(plex, library):
         logger.error(f"Error processing TV library '{library['title']}': {str(e)}")
         return []
 
-# Function copied from tv_status_tracker.py for consistent title searching
 def sanitize_title_for_search(title):
     """Sanitize title for Plex search, adding wildcards."""
-    # Start with a wildcard
-    safe_title = "%" + title
+    safe_title = title
 
-    # Add wildcards around special characters that might cause issues
-    # Check from the second character onwards to avoid double % at the start
     if "'" in title:
         safe_title = safe_title.replace("'", "%'%")
     if "," in title:
-        safe_title = safe_title.replace(",", "%,%") # Kometa uses ,%
+        safe_title = safe_title.replace(",", ",%")
     if "&" in title:
         safe_title = safe_title.replace("&", "%&%")
     if ":" in title:
         safe_title = safe_title.replace(":", "%:%")
     if "/" in title:
         safe_title = safe_title.replace("/", "%/%")
-
-    # Removed incorrect logic that added a trailing %
 
     logger.debug(f"Sanitized title for search: '{safe_title}' from original '{title}'")
     return safe_title
@@ -256,46 +240,91 @@ def generate_movie_overlay_yaml(movies_info, library_title, overlay_config):
     Args:
         movies_info: List of movies with size information
         library_title: Library title
-        overlay_config: Overlay configuration settings
+        overlay_config: Overlay configuration settings for movies
 
     Returns:
         YAML content as dictionary
     """
     yaml_data = {"overlays": {}}
 
-    # Get overlay style settings with defaults
     font_size = overlay_config.get('font_size', 63)
     font_color = overlay_config.get('font_color', "#FFFFFF")
-    back_color = overlay_config.get('back_color', "#00000099")
-    back_height = overlay_config.get('back_height', 80)
     vertical_align = overlay_config.get('vertical_align', "top")
     horizontal_align = overlay_config.get('horizontal_align', "center")
     horizontal_offset = overlay_config.get('horizontal_offset', 0)
     vertical_offset = overlay_config.get('vertical_offset', 0)
-    back_width = overlay_config.get('back_width', 1920)
+    
+    kometa_conf = CONFIG.get('kometa_config', {})
+    font_dir = kometa_conf.get('font_directory', 'config/fonts')
+    font_name = overlay_config.get('font_name', 'Juventus-Fans-Bold.ttf')
+    font_path = os.path.join(font_dir, font_name)
+
+    apply_gradient = overlay_config.get('apply_gradient_background', False)
+    gradient_name = overlay_config.get('gradient_name', 'gradient_top.png')
+    
+    asset_dir = CONFIG.get('kometa_config', {}).get('asset_directory', 'config/assets')
+    gradient_image_path = os.path.join(asset_dir, gradient_name)
+
+    back_width = overlay_config.get('back_width', 1000)
+    back_height = overlay_config.get('back_height', 80)
 
     for movie in movies_info:
-        overlay_key = f"{movie['numerical_key']}-{movie['size_gb']}-GB-overlay"
+        base_key = f"{library_title}-{movie['numerical_key']}-{movie['size_gb']}-GB"
+        plex_search = {"all": {"title.is": sanitize_title_for_search(movie['title'])}}
 
-        yaml_data["overlays"][overlay_key] = {
-            "overlay": {
-                "name": f"text({movie['size_gb']} GB)",
-                "horizontal_offset": horizontal_offset,
-                "horizontal_align": horizontal_align,
-                "vertical_offset": vertical_offset,
-                "vertical_align": vertical_align,
-                "font_size": font_size,
-                "font_color": font_color,
-                "back_color": back_color,
-                "back_width": back_width,
-                "back_height": back_height,
-            },
-            "plex_search": {
-                "all": {
-                    "title.is": sanitize_title_for_search(movie['title'])
-                }
+        if apply_gradient:
+            gradient_overlay_key = f"{base_key}-gradient"
+            yaml_data["overlays"][gradient_overlay_key] = {
+                "overlay": {
+                    "name": f"size_gradient_for_{movie['numerical_key']}",
+                    "file": gradient_image_path,
+                    "width": back_width,
+                    "height": back_height,
+                    "horizontal_align": horizontal_align,
+                    "vertical_align": vertical_align,
+                    "horizontal_offset": horizontal_offset,
+                    "vertical_offset": 0,
+                    "order": 10
+                },
+                "plex_search": plex_search
             }
-        }
+
+            text_overlay_key = f"{base_key}-text"
+            yaml_data["overlays"][text_overlay_key] = {
+                "overlay": {
+                    "name": f"text({movie['size_gb']} GB)",
+                    "font": font_path,
+                    "font_size": font_size,
+                    "font_color": font_color,
+                    "back_color": "#00000000",
+                    "horizontal_align": horizontal_align,
+                    "vertical_align": vertical_align,
+                    "horizontal_offset": horizontal_offset,
+                    "vertical_offset": vertical_offset,
+                    "back_width": back_width,
+                    "back_height": back_height,
+                    "order": 20
+                },
+                "plex_search": plex_search
+            }
+        else:
+            overlay_key = f"{base_key}-overlay"
+            yaml_data["overlays"][overlay_key] = {
+                "overlay": {
+                    "name": f"text({movie['size_gb']} GB)",
+                    "font": font_path,
+                    "font_size": font_size,
+                    "font_color": font_color,
+                    "back_color": overlay_config.get('back_color', '#000000'),
+                    "horizontal_align": horizontal_align,
+                    "vertical_align": vertical_align,
+                    "horizontal_offset": horizontal_offset,
+                    "vertical_offset": vertical_offset,
+                    "back_width": back_width,
+                    "back_height": back_height,
+                },
+                "plex_search": plex_search
+            }
 
     return yaml_data
 
@@ -305,53 +334,96 @@ def generate_show_overlay_yaml(shows_info, library_title, overlay_config):
     Args:
         shows_info: List of shows with size information
         library_title: Library title
-        overlay_config: Overlay configuration settings
+        overlay_config: Overlay configuration settings for shows
 
     Returns:
         YAML content as dictionary
     """
     yaml_data = {"overlays": {}}
 
-    # Get overlay style settings with defaults
     font_size = overlay_config.get('font_size', 55)
     font_color = overlay_config.get('font_color', "#FFFFFF")
-    back_color = overlay_config.get('back_color', "#00000099")
-    back_height = overlay_config.get('back_height', 80)
     vertical_align = overlay_config.get('vertical_align', "bottom")
     horizontal_align = overlay_config.get('horizontal_align', "center")
     show_episode_count = overlay_config.get('show_episode_count', False)
     horizontal_offset = overlay_config.get('horizontal_offset', 0)
     vertical_offset = overlay_config.get('vertical_offset', 0)
     back_width = overlay_config.get('back_width', 1920)
+    back_height = overlay_config.get('back_height', 80)
+
+    kometa_conf = CONFIG.get('kometa_config', {})
+    font_dir = kometa_conf.get('font_directory', 'config/fonts')
+    font_name = overlay_config.get('font_name', 'Juventus-Fans-Bold.ttf')
+    font_path = os.path.join(font_dir, font_name)
+
+    apply_gradient = overlay_config.get('apply_gradient_background', False)
+    gradient_name = overlay_config.get('gradient_name', 'gradient_bottom.png')
+    
+    asset_dir = CONFIG.get('kometa_config', {}).get('asset_directory', 'config/assets')
+    gradient_image_path = os.path.join(asset_dir, gradient_name)
 
     for show in shows_info:
-        overlay_key = f"{show['numerical_key']}-{show['size_gb']}-GB-overlay"
-
-        # Prepare overlay text based on settings
+        base_key = f"{library_title}-{show['numerical_key']}-{show['size_gb']}-GB"
+        plex_search = {"all": {"title.is": sanitize_title_for_search(show['title'])}}
+        
         if show_episode_count:
             overlay_text = f"{show['size_gb']} GB ({show['episode_count']} episodes)"
         else:
             overlay_text = f"{show['size_gb']} GB"
 
-        yaml_data["overlays"][overlay_key] = {
-            "overlay": {
-                "name": f"text({overlay_text})",
-                "horizontal_offset": horizontal_offset,
-                "horizontal_align": horizontal_align,
-                "vertical_offset": vertical_offset,
-                "vertical_align": vertical_align,
-                "font_size": font_size,
-                "font_color": font_color,
-                "back_color": back_color,
-                "back_width": back_width,
-                "back_height": back_height,
-            },
-            "plex_search": {
-                "all": {
-                    "title.is": sanitize_title_for_search(show['title'])
-                }
+        if apply_gradient:
+            gradient_overlay_key = f"{base_key}-gradient"
+            yaml_data["overlays"][gradient_overlay_key] = {
+                "overlay": {
+                    "name": f"size_gradient_for_{show['numerical_key']}",
+                    "file": gradient_image_path,
+                    "width": back_width,
+                    "height": back_height,
+                    "horizontal_align": horizontal_align,
+                    "vertical_align": vertical_align,
+                    "horizontal_offset": horizontal_offset,
+                    "vertical_offset": 0,
+                    "order": 10
+                },
+                "plex_search": plex_search
             }
-        }
+
+            text_overlay_key = f"{base_key}-text"
+            yaml_data["overlays"][text_overlay_key] = {
+                "overlay": {
+                    "name": f"text({overlay_text})",
+                    "font": font_path,
+                    "font_size": font_size,
+                    "font_color": font_color,
+                    "back_color": "#00000000",
+                    "horizontal_align": horizontal_align,
+                    "vertical_align": vertical_align,
+                    "horizontal_offset": horizontal_offset,
+                    "vertical_offset": vertical_offset,
+                    "back_width": back_width,
+                    "back_height": back_height,
+                    "order": 20
+                },
+                "plex_search": plex_search
+            }
+        else:
+            overlay_key = f"{base_key}-overlay"
+            yaml_data["overlays"][overlay_key] = {
+                "overlay": {
+                    "name": f"text({overlay_text})",
+                    "font": font_path,
+                    "horizontal_offset": horizontal_offset,
+                    "horizontal_align": horizontal_align,
+                    "vertical_offset": vertical_offset,
+                    "vertical_align": vertical_align,
+                    "font_size": font_size,
+                    "font_color": font_color,
+                    "back_color": overlay_config.get('back_color', '#00000099'),
+                    "back_width": back_width,
+                    "back_height": back_height,
+                },
+                "plex_search": plex_search
+            }
 
     return yaml_data
 
@@ -392,48 +464,38 @@ def track_library_changes(library_title, library_type, current_data, previous_si
     """
     library_key = f"{library_type}:{library_title}"
 
-    # Calculate total size of current data
     total_size = sum(item['size_gb'] for item in current_data)
 
-    # Get previous total size
     previous_total = 0
     if library_key in previous_sizes and 'total_size' in previous_sizes[library_key]:
         previous_total = previous_sizes[library_key]['total_size']
 
-    # Calculate size difference
     size_diff = total_size - previous_total
 
-    # Track individual item changes
     item_changes = []
     
-    # Get previous items data
     previous_items = {}
     previous_episodes = {}
     
     if library_key in previous_sizes and 'items' in previous_sizes[library_key]:
         previous_items = previous_sizes[library_key]['items']
     
-    # Get previous episode counts if they exist
     if library_key in previous_sizes and 'episodes' in previous_sizes[library_key]:
         previous_episodes = previous_sizes[library_key]['episodes']
     else:
         previous_episodes = {}
 
-    # Check if this is the first run (no previous data)
     is_first_run = not previous_items
 
-    # Skip change detection on first run, just record current state
     if not is_first_run:
         for item in current_data:
             title = item['title']
             current_size = item['size_gb']
             previous_size = previous_items.get(title, None)
             
-            # Get episode counts for shows
             current_episode_count = item.get('episode_count', 0) if library_type == 'show' else 0
             previous_episode_count = previous_episodes.get(title, 0) if library_type == 'show' else 0
 
-            # Determine change type based on what changed
             if previous_size is None:
                 change_type = "NEW"
                 size_change = current_size
@@ -460,7 +522,6 @@ def track_library_changes(library_title, library_type, current_data, previous_si
                 'library_type': library_type
             }
 
-            # Add episode info for TV shows and anime
             if library_type == 'show':
                 change_item['episode_count'] = current_episode_count
                 if change_type in ["NEW_EPISODES", "REMOVED_EPISODES", "QUALITY_CHANGE"]:
@@ -472,7 +533,6 @@ def track_library_changes(library_title, library_type, current_data, previous_si
 
             item_changes.append(change_item)
         
-        # Check for items that were removed completely
         for title, previous_size in previous_items.items():
             if not any(item['title'] == title for item in current_data):
                 change_type = "REMOVED"
@@ -487,16 +547,13 @@ def track_library_changes(library_title, library_type, current_data, previous_si
                     'library_type': library_type
                 }
                 
-                # Add episode info for removed shows
                 if library_type == 'show' and title in previous_episodes:
                     change_item['previous_episode_count'] = previous_episodes[title]
                 
                 item_changes.append(change_item)
 
-    # Update previous sizes for next run
     new_items = {item['title']: item['size_gb'] for item in current_data}
     
-    # Save episode counts for shows
     new_episodes = {}
     if library_type == 'show':
         new_episodes = {item['title']: item.get('episode_count', 0) for item in current_data}
@@ -517,7 +574,6 @@ def format_filesize(size_in_gb):
     else:
         return f"{size_in_gb:.2f} GB"
 
-# Helper function to split a large text block into chunks for Discord fields
 def split_text_into_fields(name_prefix, text, max_len=1024, max_fields=25):
     """Splits text into chunks suitable for Discord embed field values."""
     fields = []
@@ -529,7 +585,6 @@ def split_text_into_fields(name_prefix, text, max_len=1024, max_fields=25):
     field_count = 0
 
     for line in lines:
-        # Check if adding the next line exceeds max length
         if len(current_chunk) + len(line) + 1 > max_len:
             if current_chunk:
                 field_name = f"{name_prefix}" if field_count == 0 else f"{name_prefix} (cont. {field_count})"
@@ -567,22 +622,18 @@ def run_size_overlay_service():
 
     import trakt_auth
 
-    # Start time for performance tracking
     start_time = datetime.now()
     logger.info(f"Size Overlay service started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    # Load configuration
     CONFIG = trakt_auth.load_config()
     if not CONFIG:
         logger.error("Failed to load configuration")
         return False
 
-    # Check if service is enabled
     if not CONFIG.get('services', {}).get('size_overlay', {}).get('enabled', False):
         logger.info("Size Overlay service is disabled, skipping")
         return True  
 
-    # Get paths for Kometa overlays
     yaml_output_dir = CONFIG.get('kometa_config', {}).get('yaml_output_dir', '/kometa/config/overlays')
 
     if not os.path.exists(yaml_output_dir):
@@ -594,36 +645,29 @@ def run_size_overlay_service():
             logger.error(f"Failed to create overlay directory: {str(e)}")
             return False
 
-    # Get service-specific configuration
     service_config = CONFIG.get('services', {}).get('size_overlay', {})
     movie_overlay_config = service_config.get('movie_overlay', {})
     show_overlay_config = service_config.get('show_overlay', {})
 
-    # Get enabled libraries
     enabled_movie_libraries = service_config.get('movie_libraries', [])
     enabled_tv_libraries = service_config.get('tv_libraries', [])
     enabled_anime_libraries = service_config.get('anime_libraries', [])
 
-    # Connect to Plex
     plex = connect_to_plex()
     if not plex:
         logger.error("Failed to connect to Plex server")
         return False
 
-    # Get all libraries
     libraries = get_library_sections(plex)
     logger.info(f"Found {len(libraries)} libraries in Plex")
 
-    # Load previous sizes for change tracking
     previous_sizes = load_previous_sizes()
 
-    # Process each library based on type
     success = True
     created_files = []
     library_changes = []
     total_items_processed = 0
 
-    # Track totals for reporting
     total_movies = 0
     total_shows = 0
     total_episodes = 0
@@ -635,7 +679,6 @@ def run_size_overlay_service():
         library_title = library['title']
         library_type = library['type']
 
-        # Process movie libraries
         if library_type == 'movie' and (not enabled_movie_libraries or library_title in enabled_movie_libraries):
             logger.info(f"Processing movie library: {library_title}")
             movies_info = process_movie_library(plex, library)
@@ -643,7 +686,6 @@ def run_size_overlay_service():
             total_movies += len(movies_info)
 
             if movies_info:
-                # Track changes for this library
                 library_key, lib_total_size, lib_size_diff, item_changes = track_library_changes(
                     library_title, "movie", movies_info, previous_sizes
                 )
@@ -651,7 +693,6 @@ def run_size_overlay_service():
                 total_size_gb += lib_total_size
                 size_change_gb += lib_size_diff
 
-                # Log significant changes
                 for change in item_changes:
                     if change['type'] == "NEW":
                         logger.info(f"New movie: {change['title']} ({change['current_size']:.2f} GB)")
@@ -674,14 +715,12 @@ def run_size_overlay_service():
                     'changed_items': item_changes
                 })
 
-                # Generate and write overlay YAML
                 yaml_data = generate_movie_overlay_yaml(movies_info, library_title, movie_overlay_config)
                 if write_overlay_yaml(yaml_data, yaml_output_dir, library_title):
                     created_files.append(f"size-overlays-{library_title.lower().replace(' ', '-')}.yml")
                 else:
                     success = False
 
-        # Process TV libraries (both regular TV and anime)
         elif library_type == 'show' and (
             (not enabled_tv_libraries or library_title in enabled_tv_libraries) or
             (not enabled_anime_libraries or library_title in enabled_anime_libraries)
@@ -691,12 +730,10 @@ def run_size_overlay_service():
             total_items_processed += len(shows_info)
             total_shows += len(shows_info)
 
-            # Sum episode counts only for TV shows
             show_episodes = sum(show.get('episode_count', 0) for show in shows_info)
             total_episodes += show_episodes
 
             if shows_info:
-                # Track changes for this library
                 library_key, lib_total_size, lib_size_diff, item_changes = track_library_changes(
                     library_title, "show", shows_info, previous_sizes
                 )
@@ -704,7 +741,6 @@ def run_size_overlay_service():
                 total_size_gb += lib_total_size
                 size_change_gb += lib_size_diff
 
-                # Log significant changes
                 for change in item_changes:
                     if change['type'] == "NEW":
                         episode_text = f"({change.get('episode_count', 0)} episodes)" if 'episode_count' in change else ""
@@ -743,42 +779,34 @@ def run_size_overlay_service():
                     'changed_items': item_changes
                 })
 
-                # Generate and write overlay YAML
                 yaml_data = generate_show_overlay_yaml(shows_info, library_title, show_overlay_config)
                 if write_overlay_yaml(yaml_data, yaml_output_dir, library_title):
                     created_files.append(f"size-overlays-{library_title.lower().replace(' ', '-')}.yml")
                 else:
                     success = False
 
-    # Save updated sizes for next run
     save_current_sizes(previous_sizes)
 
-    # Calculate elapsed time
     end_time = datetime.now()
     elapsed_time = end_time - start_time
     elapsed_seconds = elapsed_time.total_seconds()
 
-    # Log summary
     logger.info(f"Size Overlay service completed in {elapsed_seconds:.1f} seconds")
     logger.info(f"Processed {total_movies} movies and {total_shows} shows with {total_episodes} episodes")
     logger.info(f"Total media size: {total_size_gb:.2f} GB ({'+' if size_change_gb > 0 else ''}{size_change_gb:.2f} GB change)")
     logger.info(f"Created {len(created_files)} overlay files")
 
-    # Send notification if configured
     if CONFIG.get('notifications', {}).get('enabled', False):
         try:
             from notifications import send_discord_notification
 
-            # Determine if this is the first run or if there are changes
             is_first_run = not os.path.exists(SIZES_FILE) or previous_sizes == {}
             has_changes = len(significant_changes) > 0
 
-            # Skip notification entirely if no changes and not first run
             if not is_first_run and not has_changes and not created_files:
                 logger.info("Skipping notification - no changes to report")
                 return True
 
-            # Create the common library summary that will be included in all notifications
             libraries_text = ""
             for library in library_changes:
                 lib_name = library['library']
@@ -786,18 +814,15 @@ def run_size_overlay_service():
                 lib_size = library['total_size']
                 lib_count = library['item_count']
 
-                # Get episode count for show libraries
                 if lib_type == "movie":
                     libraries_text += f"• {lib_name}: {format_filesize(lib_size)} - {lib_count} movies\n"
                 else:
                     episode_count = library.get('episode_count', 0)
                     libraries_text += f"• {lib_name}: {format_filesize(lib_size)} - {lib_count} shows ({episode_count} episodes)\n"
 
-            # Create total summary text
             summary_text = f"{format_filesize(total_size_gb)} across {total_movies} movies and {total_shows} shows with {total_episodes} episodes."
 
             if is_first_run:
-                # First run notification
                 title = "Size Overlay Service - Initial Scan"
                 message = f"Completed initial media size scan in {elapsed_seconds:.1f} seconds."
 
@@ -987,7 +1012,6 @@ def run_size_overlay_service():
 
                 color = 3447003
 
-            # Send the notification
             send_discord_notification(
                 title,
                 message,
@@ -1009,7 +1033,6 @@ def run_size_overlay_service():
         return False
 
 if __name__ == "__main__":
-    # When run directly, execute the service
     success = run_size_overlay_service()
     if success:
         console.print("[bold green]Size Overlay service completed successfully![/bold green]")

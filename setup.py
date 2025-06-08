@@ -12,12 +12,11 @@ import time as time_module
 import datetime
 import requests
 import json
+import argparse
 from rich.console import Console
 
-# Initialize console for rich output
 console = Console()
 
-# Constants
 DATA_DIR = "data"
 
 def test_discord_notification(webhook_url):
@@ -25,7 +24,6 @@ def test_discord_notification(webhook_url):
     try:
         console.print("[bold blue]Testing Discord notification system...[/bold blue]")
 
-        # Create a test payload for Discord
         payload = {
             "content": None,
             "embeds": [
@@ -41,7 +39,6 @@ def test_discord_notification(webhook_url):
             ]
         }
 
-        # Send the test notification
         response = requests.post(
             webhook_url,
             data=json.dumps(payload),
@@ -133,17 +130,14 @@ def setup_anime_episode_type(config):
         console.print("[yellow]Service disabled. No further configuration needed.[/yellow]")
         return
     
-    # Configure libraries
     console.print("\n[bold]Library Configuration[/bold]")
     
-    # Get existing anime libraries or discover them
     anime_libraries = []
     existing_libraries = config.get('plex', {}).get('libraries', {}).get('anime', [])
     
     if existing_libraries:
         console.print(f"[green]Found existing anime libraries: {', '.join(existing_libraries)}[/green]")
         
-        # Ask to use existing libraries or add new ones
         use_existing = click.confirm("Use these existing anime libraries?", default=True)
         if use_existing:
             anime_libraries = existing_libraries
@@ -157,7 +151,6 @@ def setup_anime_episode_type(config):
             additional_library = click.prompt("Enter additional anime library name")
             anime_libraries.append(additional_library)
         
-        # Update the main anime libraries list
         if 'plex' not in config:
             config['plex'] = {}
         if 'libraries' not in config['plex']:
@@ -165,13 +158,10 @@ def setup_anime_episode_type(config):
         
         config['plex']['libraries']['anime'] = anime_libraries
         
-        # Legacy support
         config['plex']['library'] = anime_libraries[0]
     
-    # Save the libraries for this service
     config['services']['anime_episode_type']['libraries'] = anime_libraries
     
-    # Configure scheduler
     setup_service_scheduler(config, 'anime_episode_type')
 
 def setup_tv_status_tracker(config):
@@ -180,13 +170,11 @@ def setup_tv_status_tracker(config):
     console.print("[yellow]This service creates Kometa overlays and Trakt lists for next airing episodes, season finales, etc.[/yellow]")
     console.print("[yellow]It can work with both anime and regular TV shows.[/yellow]")
     
-    # Enable the service
     enable_service = click.confirm("Enable TV/Anime Status Tracker service?", 
                                   default=config.get('services', {}).get('tv_status_tracker', {}).get('enabled', False))
     
     if 'tv_status_tracker' not in config.get('services', {}):
         config['services']['tv_status_tracker'] = {}
-        # Initialize default colors
         config['services']['tv_status_tracker']['colors'] = {
             'AIRING': '#006580',
             'ENDED': '#000000',
@@ -198,30 +186,36 @@ def setup_tv_status_tracker(config):
             'SEASON_PREMIERE': '#228B22'
         }
     
-    if 'overlay' not in config['services']['tv_status_tracker']:
-        config['services']['tv_status_tracker']['overlay'] = {
-            'back_height': 90,
-            'back_width': 1000,
-            'color': '#FFFFFF',
-            'font_size': 70,
-            'horizontal_align': "center",
-            'horizontal_offset': 0,
-            'vertical_align': "top",
-            'vertical_offset': 0
-        }
+    overlay_config = config['services']['tv_status_tracker'].setdefault('overlay', {})
+    overlay_config.setdefault('font_path', "config/fonts/Juventus-Fans-Bold.ttf")
+    overlay_config.setdefault('overlay_style', "background_color")
+    overlay_config.setdefault('gradient_name', "gradient_top.png")
+    overlay_config.setdefault('back_height', 90)
+    overlay_config.setdefault('back_width', 1000)
+    overlay_config.setdefault('color', '#FFFFFF')
+    overlay_config.setdefault('font_size', 70)
+    overlay_config.setdefault('horizontal_align', "center")
+    overlay_config.setdefault('horizontal_offset', 0)
+    overlay_config.setdefault('vertical_align', "top")
+    overlay_config.setdefault('vertical_offset', 0)
+    overlay_config.setdefault('apply_gradient_background', False)
 
     config['services']['tv_status_tracker']['enabled'] = enable_service
     
     if not enable_service:
         console.print("[yellow]Service disabled. No further configuration needed.[/yellow]")
         return
+
+    apply_gradient = click.confirm(
+        "Apply gradient background for TV/Anime Status Tracker overlays?",
+        default=overlay_config.get('apply_gradient_background', False)
+    )
+    overlay_config['apply_gradient_background'] = apply_gradient
     
-    # Configure libraries
     console.print("\n[bold]Library Configuration[/bold]")
     
     selected_libraries = []
     
-    # Check for existing anime libraries
     anime_libraries = config.get('plex', {}).get('libraries', {}).get('anime', [])
     if anime_libraries:
         console.print(f"[green]Found anime libraries: {', '.join(anime_libraries)}[/green]")
@@ -237,7 +231,6 @@ def setup_tv_status_tracker(config):
                 additional_library = click.prompt("Enter additional anime library name")
                 anime_libraries.append(additional_library)
             
-            # Update the main anime libraries list
             if 'plex' not in config:
                 config['plex'] = {}
             if 'libraries' not in config['plex']:
@@ -246,7 +239,6 @@ def setup_tv_status_tracker(config):
             config['plex']['libraries']['anime'] = anime_libraries
             selected_libraries.extend(anime_libraries)
     
-    # Check for existing TV libraries
     tv_libraries = config.get('plex', {}).get('libraries', {}).get('tv', [])
     if tv_libraries:
         console.print(f"[green]Found TV libraries: {', '.join(tv_libraries)}[/green]")
@@ -262,7 +254,6 @@ def setup_tv_status_tracker(config):
                 additional_library = click.prompt("Enter additional TV show library name")
                 tv_libraries.append(additional_library)
             
-            # Update the main TV libraries list
             if 'plex' not in config:
                 config['plex'] = {}
             if 'libraries' not in config['plex']:
@@ -271,15 +262,12 @@ def setup_tv_status_tracker(config):
             config['plex']['libraries']['tv'] = tv_libraries
             selected_libraries.extend(tv_libraries)
     
-    # Warn if no libraries selected
     if not selected_libraries:
         console.print("[bold yellow]Warning: No libraries selected for TV/Anime Status Tracker.[/bold yellow]")
         console.print("[yellow]The service may not function properly without libraries.[/yellow]")
     
-    # Save the libraries for this service
     config['services']['tv_status_tracker']['libraries'] = selected_libraries
     
-    # Configure scheduler
     setup_service_scheduler(config, 'tv_status_tracker')
 
 def setup_size_overlay(config):
@@ -287,13 +275,15 @@ def setup_size_overlay(config):
     console.print("\n[bold cyan]Size Overlay Service[/bold cyan]")
     console.print("[yellow]This service creates Kometa overlays displaying file sizes for movies and TV shows.[/yellow]")
     
-    # Enable the service
     enable_service = click.confirm("Enable Size Overlay service?", 
                                   default=config.get('services', {}).get('size_overlay', {}).get('enabled', False))
     
     if 'size_overlay' not in config.get('services', {}):
         config['services']['size_overlay'] = {
             'movie_overlay': {
+                'apply_gradient_background': False,
+                'gradient_name': 'gradient_top.png',
+                'font_path': 'config/fonts/Juventus-Fans-Bold.ttf',
                 'horizontal_offset': 0,
                 'horizontal_align': 'center',
                 'vertical_offset': 0,
@@ -305,6 +295,9 @@ def setup_size_overlay(config):
                 'back_height': 125
             },
             'show_overlay': {
+                'apply_gradient_background': False,
+                'gradient_name': 'gradient_bottom.png',
+                'font_path': 'config/fonts/Juventus-Fans-Bold.ttf',
                 'horizontal_offset': 0,
                 'horizontal_align': 'center',
                 'vertical_offset': 0,
@@ -314,7 +307,7 @@ def setup_size_overlay(config):
                 'back_color': '#00000099',
                 'back_width': 1920,
                 'back_height': 80,
-                'show_episode_count': False 
+                'show_episode_count': False
             }
         }
     
@@ -323,15 +316,39 @@ def setup_size_overlay(config):
     if not enable_service:
         console.print("[yellow]Service disabled. No further configuration needed.[/yellow]")
         return
+
+    console.print("\n[bold]Movie Overlay Configuration[/bold]")
+    apply_gradient_movies = click.confirm(
+        "Apply gradient background for Movie Size Overlays?",
+        default=config['services']['size_overlay']['movie_overlay'].get('apply_gradient_background', False)
+    )
+    config['services']['size_overlay']['movie_overlay']['apply_gradient_background'] = apply_gradient_movies
+    if apply_gradient_movies:
+        gradient_name_movies = click.prompt(
+            "Enter gradient image name for movies",
+            default=config['services']['size_overlay']['movie_overlay'].get('gradient_name', 'gradient_top.png')
+        )
+        config['services']['size_overlay']['movie_overlay']['gradient_name'] = gradient_name_movies
+
+    console.print("\n[bold]TV Show Overlay Configuration[/bold]")
+    apply_gradient_shows = click.confirm(
+        "Apply gradient background for TV Show Size Overlays?",
+        default=config['services']['size_overlay']['show_overlay'].get('apply_gradient_background', False)
+    )
+    config['services']['size_overlay']['show_overlay']['apply_gradient_background'] = apply_gradient_shows
+    if apply_gradient_shows:
+        gradient_name_shows = click.prompt(
+            "Enter gradient image name for TV shows",
+            default=config['services']['size_overlay']['show_overlay'].get('gradient_name', 'gradient_bottom.png')
+        )
+        config['services']['size_overlay']['show_overlay']['gradient_name'] = gradient_name_shows
     
-    # Configure libraries
     console.print("\n[bold]Library Configuration[/bold]")
     
     selected_movie_libraries = []
     selected_tv_libraries = []
     selected_anime_libraries = []
     
-    # Check for existing movie libraries
     movie_libraries = config.get('plex', {}).get('libraries', {}).get('movie', [])
     if movie_libraries:
         console.print(f"[green]Found movie libraries: {', '.join(movie_libraries)}[/green]")
@@ -347,7 +364,6 @@ def setup_size_overlay(config):
                 additional_library = click.prompt("Enter additional movie library name")
                 movie_libraries.append(additional_library)
             
-            # Update the main movie libraries list
             if 'plex' not in config:
                 config['plex'] = {}
             if 'libraries' not in config['plex']:
@@ -356,7 +372,6 @@ def setup_size_overlay(config):
             config['plex']['libraries']['movie'] = movie_libraries
             selected_movie_libraries.extend(movie_libraries)
     
-    # Check for existing TV libraries
     tv_libraries = config.get('plex', {}).get('libraries', {}).get('tv', [])
     if tv_libraries:
         console.print(f"[green]Found TV libraries: {', '.join(tv_libraries)}[/green]")
@@ -372,7 +387,6 @@ def setup_size_overlay(config):
                 additional_library = click.prompt("Enter additional TV show library name")
                 tv_libraries.append(additional_library)
             
-            # Update the main TV libraries list
             if 'plex' not in config:
                 config['plex'] = {}
             if 'libraries' not in config['plex']:
@@ -381,7 +395,6 @@ def setup_size_overlay(config):
             config['plex']['libraries']['tv'] = tv_libraries
             selected_tv_libraries.extend(tv_libraries)
     
-    # Check for existing anime libraries
     anime_libraries = config.get('plex', {}).get('libraries', {}).get('anime', [])
     if anime_libraries:
         console.print(f"[green]Found anime libraries: {', '.join(anime_libraries)}[/green]")
@@ -397,7 +410,6 @@ def setup_size_overlay(config):
                 additional_library = click.prompt("Enter additional anime library name")
                 anime_libraries.append(additional_library)
             
-            # Update the main anime libraries list
             if 'plex' not in config:
                 config['plex'] = {}
             if 'libraries' not in config['plex']:
@@ -406,17 +418,14 @@ def setup_size_overlay(config):
             config['plex']['libraries']['anime'] = anime_libraries
             selected_anime_libraries.extend(anime_libraries)
     
-    # Warn if no libraries selected
     if not (selected_movie_libraries or selected_tv_libraries or selected_anime_libraries):
         console.print("[bold yellow]Warning: No libraries selected for Size Overlay.[/bold yellow]")
         console.print("[yellow]The service may not function properly without libraries.[/yellow]")
     
-    # Save the libraries for this service
     config['services']['size_overlay']['movie_libraries'] = selected_movie_libraries
     config['services']['size_overlay']['tv_libraries'] = selected_tv_libraries
     config['services']['size_overlay']['anime_libraries'] = selected_anime_libraries
     
-    # Configure scheduler
     setup_service_scheduler(config, 'size_overlay')
 
 def setup_service(service_name):
@@ -428,7 +437,6 @@ def setup_service(service_name):
     
     console.print(f"[bold]Running targeted setup for {service_name} service.[/bold]")
     
-    # Load existing config
     config_dir = 'config'
     if os.environ.get('RUNNING_IN_DOCKER') == 'true':
         config_dir = "/app/config"
@@ -439,15 +447,12 @@ def setup_service(service_name):
         console.print("[bold red]Error: Configuration file not found. Please run full setup first.[/bold red]")
         return
     
-    # Load existing config
     with open(config_path, 'r') as file:
         config = yaml.safe_load(file)
     
-    # Ensure the services section exists
     if 'services' not in config:
         config['services'] = {}
     
-    # Setup for specific service
     if service_name == 'anime_episode_type':
         setup_anime_episode_type(config)
     elif service_name == 'tv_status_tracker':
@@ -455,13 +460,10 @@ def setup_service(service_name):
     elif service_name == 'size_overlay':
         setup_size_overlay(config)
     
-    # Save the updated config
-    with open(config_path, 'w') as file:
-        yaml.dump(config, file)
+    save_config_with_comments(config, config_path)
     
     console.print(f"[bold green]Configuration for {service_name} updated successfully![/bold green]")
     
-    # Display a summary of the configured service
     console.print("\n[bold]Service Configuration Summary:[/bold]")
     
     if service_name == 'anime_episode_type':
@@ -472,7 +474,6 @@ def setup_service(service_name):
             if libraries:
                 console.print(f"   [dim]Libraries: {', '.join(libraries)}[/dim]")
                 
-            # Show schedule
             if 'anime_episode_type' in config['scheduler']:
                 sched = config['scheduler']['anime_episode_type']
                 sched_type = sched.get('type')
@@ -495,7 +496,6 @@ def setup_service(service_name):
             if libraries:
                 console.print(f"   [dim]Libraries: {', '.join(libraries)}[/dim]")
                 
-            # Show schedule
             if 'tv_status_tracker' in config['scheduler']:
                 sched = config['scheduler']['tv_status_tracker']
                 sched_type = sched.get('type')
@@ -525,7 +525,6 @@ def setup_service(service_name):
             if libraries:
                 console.print(f"   [dim]Libraries: {', '.join(libraries)}[/dim]")
                 
-            # Show schedule
             if 'size_overlay' in config['scheduler']:
                 sched = config['scheduler']['size_overlay']
                 sched_type = sched.get('type')
@@ -540,7 +539,6 @@ def setup_service(service_name):
         else:
             console.print("❌ Size Overlay Service [red]DISABLED[/red]")
     
-    # Restart instructions
     console.print("\n[yellow]Remember to restart the updater to apply changes:[/yellow]")
     console.print("[green]docker compose restart dakosys-updater[/green]")
 
@@ -548,7 +546,6 @@ def run_setup():
     """Interactive setup to create configuration file."""
     console.print("[bold]Welcome to the DAKOSYS Setup![/bold]")
 
-    # Create config directory if it doesn't exist
     config_dir = 'config'
     if os.environ.get('RUNNING_IN_DOCKER') == 'true':
         config_dir = "/app/config"
@@ -558,12 +555,10 @@ def run_setup():
 
     config_path = os.path.join(config_dir, 'config.yaml')
 
-    # Timezone selection
     console.print("\n[bold]Timezone Configuration[/bold]")
     console.print("[yellow]Enter your timezone (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo')[/yellow]")
     console.print("[yellow]This ensures the scheduler runs at the correct local time.[/yellow]")
 
-    # Show common timezones as examples
     console.print("\n[bold]Common timezones:[/bold]")
     common_timezones = [
         "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
@@ -572,20 +567,17 @@ def run_setup():
     for tz in common_timezones:
         console.print(f"- {tz}")
 
-    # Prompt for timezone with default
     default_timezone = time_module.tzname[0]
     timezone = click.prompt("Enter your timezone", default=default_timezone)
 
-    # Display Settings
     console.print("\n[bold]Display Settings[/bold]")
-    # Load existing date_format if config exists, otherwise use default
     existing_config = {}
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r') as file:
                 existing_config = yaml.safe_load(file) or {}
         except Exception:
-            pass # Ignore errors if file is invalid, will use default
+            pass
             
     default_date_format = existing_config.get('date_format', 'DD/MM')
     date_format_preference = click.prompt(
@@ -594,10 +586,9 @@ def run_setup():
         default=default_date_format
     )
 
-    # Initialize config with defaults
     config = {
         'timezone': timezone,
-        'date_format': date_format_preference.upper(), # Store in uppercase for consistency
+        'date_format': date_format_preference.upper(),
         'plex': {
             'libraries': {
                 'anime': [],
@@ -609,10 +600,11 @@ def run_setup():
         'lists': {},
         'kometa_config': {
             'yaml_output_dir': '/kometa/config/overlays',
-            'collections_dir': '/kometa/config/collections'
+            'collections_dir': '/kometa/config/collections',
+            'font_directory': 'config/fonts',
+            'asset_directory': 'config/assets'
         },
-        'scheduler': {
-        },
+        'scheduler': {},
         'services': {
             'anime_episode_type': {
                 'enabled': False,
@@ -647,12 +639,19 @@ def run_setup():
                     'horizontal_align': "center",
                     'horizontal_offset': 0,
                     'vertical_align': "top",
-                    'vertical_offset': 0
+                    'vertical_offset': 0,
+                    'font_name': "Juventus-Fans-Bold.ttf",
+                    'overlay_style': "background_color",
+                    'gradient_name': "gradient_top.png",
+                    'apply_gradient_background': False
                 }
             },
             'size_overlay': {
                 'enabled': False,
                 'movie_overlay': {
+                    'apply_gradient_background': False,
+                    'gradient_name': 'gradient_top.png',
+                    'font_path': 'config/fonts/Juventus-Fans-Bold.ttf',
                     'horizontal_offset': 0,
                     'horizontal_align': 'center',
                     'vertical_offset': 0,
@@ -664,6 +663,9 @@ def run_setup():
                     'back_height': 125
                 },
                 'show_overlay': {
+                    'apply_gradient_background': False,
+                    'gradient_name': 'gradient_bottom.png',
+                    'font_path': 'config/fonts/Juventus-Fans-Bold.ttf',
                     'horizontal_offset': 0,
                     'horizontal_align': 'center',
                     'vertical_offset': 0,
@@ -679,14 +681,12 @@ def run_setup():
         }
     }
 
-    # Plex configuration
     console.print("\n[bold]Plex Configuration[/bold]")
     console.print("[yellow]You'll need your Plex server URL and an authentication token.[/yellow]")
     console.print("[yellow]To get your token, see: https://support.plex.tv/articles/204059436-finding-an-authentication-token/[/yellow]")
     config['plex']['url'] = click.prompt("Enter your Plex server URL", default="http://localhost:32400")
     config['plex']['token'] = click.prompt("Enter your Plex authentication token")
 
-    # Kometa Configuration
     console.print("\n[bold]Kometa Configuration[/bold]")
     console.print("[yellow]DAKOSYS integrates with Kometa/PMM by generating overlay and collection files.[/yellow]")
     console.print("[yellow]These settings will be used by all services that create Kometa configurations.[/yellow]")
@@ -695,40 +695,42 @@ def run_setup():
     config['kometa_config']['yaml_output_dir'] = yaml_output_dir
     config['kometa_config']['collections_dir'] = collections_dir
 
-    # Service configuration - Ask about which services to enable first
+    console.print("\n[bold]Kometa Asset & Font Directories[/bold]")
+    console.print("[yellow]Specify directories for Kometa to find custom fonts and assets (like gradients).[/yellow]")
+    console.print("[yellow]These paths are relative to Kometa's main configuration directory (e.g., '/kometa/config').[/yellow]")
+    
+    font_dir = click.prompt("Enter Kometa font directory", default=config['kometa_config'].get('font_directory', "config/fonts"))
+    config['kometa_config']['font_directory'] = font_dir
+    
+    asset_dir = click.prompt("Enter Kometa asset directory", default=config['kometa_config'].get('asset_directory', "config/assets"))
+    config['kometa_config']['asset_directory'] = asset_dir
+
     console.print("\n[bold]Service Configuration[/bold]")
     console.print("[yellow]DAKOSYS supports multiple services that can be enabled independently.[/yellow]")
 
-    # Anime Episode Type service
     console.print("\n[bold cyan]Anime Episode Type Tracker[/bold cyan]")
     console.print("[yellow]This service tracks anime episodes by type (filler, manga canon, etc.) and creates Trakt lists for each type.[/yellow]")
     anime_episode_service = click.confirm("Enable Anime Episode Type service?", default=True)
     config['services']['anime_episode_type']['enabled'] = anime_episode_service
 
-    # TV/Anime Status Tracker service (renamed from TV Status Tracker)
     console.print("\n[bold cyan]TV/Anime Status Tracker[/bold cyan]")
     console.print("[yellow]This service creates Kometa overlays and Trakt lists for next airing episodes, season finales, etc.[/yellow]")
     console.print("[yellow]It can work with both anime and regular TV shows.[/yellow]")
     tv_status_service = click.confirm("Enable TV/Anime Status Tracker service?", default=False)
     config['services']['tv_status_tracker']['enabled'] = tv_status_service
 
-    # Size Overlay service
     console.print("\n[bold cyan]Size Overlay Service[/bold cyan]")
     console.print("[yellow]This service creates Kometa overlays displaying file sizes for movies and TV shows.[/yellow]")
     size_overlay_service = click.confirm("Enable Size Overlay service?", default=False)
     config['services']['size_overlay']['enabled'] = size_overlay_service
 
-    # First collect all library information at once - library discovery section
-    # Initialize library collections
     anime_libraries = []
     tv_libraries = []
     movie_libraries = []
 
-    # Ask about library types first
     console.print("\n[bold]Plex Library Discovery[/bold]")
     console.print("[yellow]Let's first identify all your Plex libraries by type.[/yellow]")
 
-    # Ask about anime libraries
     has_anime = click.confirm("\nDo you have anime libraries in Plex?", default=False)
     if has_anime:
         console.print("\n[bold cyan]Anime Libraries[/bold cyan]")
@@ -739,7 +741,6 @@ def run_setup():
             additional_library = click.prompt("Enter additional anime library name")
             anime_libraries.append(additional_library)
 
-    # Ask about TV libraries
     has_tv = click.confirm("\nDo you have TV show libraries in Plex?", default=True)
     if has_tv:
         console.print("\n[bold cyan]TV Show Libraries[/bold cyan]")
@@ -750,7 +751,6 @@ def run_setup():
             additional_library = click.prompt("Enter additional TV show library name")
             tv_libraries.append(additional_library)
 
-    # Ask about movie libraries
     has_movies = click.confirm("\nDo you have movie libraries in Plex?", default=True)
     if has_movies:
         console.print("\n[bold cyan]Movie Libraries[/bold cyan]")
@@ -761,20 +761,16 @@ def run_setup():
             additional_library = click.prompt("Enter additional movie library name")
             movie_libraries.append(additional_library)
 
-    # Save all discovered libraries to config
     config['plex']['libraries']['anime'] = anime_libraries
     config['plex']['libraries']['tv'] = tv_libraries
     config['plex']['libraries']['movie'] = movie_libraries
 
-    # Legacy support for anime
     if anime_libraries:
         config['plex']['library'] = anime_libraries[0]
 
-    # Now configure each service with appropriate libraries
     console.print("\n[bold]Service Library Configuration[/bold]")
     console.print("[yellow]Now let's configure which libraries to use with each service.[/yellow]")
 
-    # Configure Anime Episode Type service libraries
     if anime_episode_service:
         console.print("\n[bold cyan]Anime Episode Type Library Selection[/bold cyan]")
         if anime_libraries:
@@ -784,7 +780,6 @@ def run_setup():
             console.print("[yellow]No anime libraries available for Anime Episode Type service.[/yellow]")
             console.print("[yellow]This service requires anime libraries to function.[/yellow]")
 
-    # Configure TV/Anime Status Tracker libraries
     if tv_status_service:
         console.print("\n[bold cyan]TV/Anime Status Tracker Library Selection[/bold cyan]")
         
@@ -805,7 +800,6 @@ def run_setup():
         
         config['services']['tv_status_tracker']['libraries'] = selected_libraries
 
-    # Configure Size Overlay service libraries
     if size_overlay_service:
         console.print("\n[bold cyan]Size Overlay Library Selection[/bold cyan]")
         
@@ -835,12 +829,28 @@ def run_setup():
         config['services']['size_overlay']['tv_libraries'] = selected_tv_libraries
         config['services']['size_overlay']['anime_libraries'] = selected_anime_libraries
 
-    # Configure TV/Anime Status Tracker settings if enabled
     if tv_status_service:
         console.print("\n[bold]TV/Anime Status Tracker Configuration[/bold]")
         console.print("[yellow]This service will use the global Kometa configuration paths.[/yellow]")
+        
+        console.print("\n[bold]TV/Anime Status Tracker - Overlay Style[/bold]")
+        console.print("Choose how the status overlay will be displayed:")
+        console.print("  - [cyan]background_color[/cyan]: Displays status text (typically white) on a solid background.")
+        console.print("                         The background color is determined by the show's status (e.g., red for CANCELLED).")
+        console.print("  - [cyan]colored_text[/cyan]: Displays status text directly on a semi-transparent gradient image.")
+        console.print("                         The text itself will be colored according to the show's status.")
+        console.print("                         (Requires 'gradient_top.png' in 'config/assets/' relative to Kometa's config root).")
 
-    # Trakt configuration
+        overlay_settings = config['services']['tv_status_tracker'].setdefault('overlay', {})
+        current_overlay_style = overlay_settings.get('overlay_style', 'background_color') 
+        
+        chosen_overlay_style = click.prompt(
+            "Choose overlay style",
+            type=click.Choice(['background_color', 'colored_text'], case_sensitive=False),
+            default=current_overlay_style
+        )
+        overlay_settings['overlay_style'] = chosen_overlay_style
+
     console.print("\n[bold]Trakt Configuration[/bold]")
     console.print("[yellow]You'll need to create a Trakt.tv API application first at: https://trakt.tv/oauth/applications[/yellow]")
     console.print("\n[bold]When creating your Trakt application:[/bold]")
@@ -851,14 +861,12 @@ def run_setup():
     console.print("5. Check: [green]Skip authorization (single user)[/green]")
     console.print("\n[yellow]After creating your application, you'll see both a Client ID and Client Secret that you'll need below.[/yellow]")
 
-    # Prompt for Trakt info
     console.print("\n[bold]Enter your Trakt application details:[/bold]")
     config['trakt']['client_id'] = click.prompt("Enter your Trakt Client ID (a long string of letters and numbers)")
     config['trakt']['client_secret'] = click.prompt("Enter your Trakt Client Secret (needed for auto-refresh)")
     config['trakt']['username'] = click.prompt("Enter your Trakt username")
     config['trakt']['redirect_uri'] = click.prompt("Enter redirect URI", default="urn:ietf:wg:oauth:2.0:oob")
 
-    # List settings
     console.print("\n[bold]List Settings[/bold]")
     config['lists']['default_privacy'] = click.prompt(
         "Default privacy for created lists",
@@ -866,17 +874,13 @@ def run_setup():
         default="private"
     )
 
-    # Per-service schedule configuration
     console.print("\n[bold]Service Schedules[/bold]")
     console.print("[yellow]Configure when each enabled service will run.[/yellow]")
 
-    # Configure scheduler for Anime Episode Type if enabled
     if anime_episode_service:
-        # Make sure the scheduler section exists
         if 'scheduler' not in config:
             config['scheduler'] = {}
 
-        # Create service-specific schedule section
         if 'anime_episode_type' not in config['scheduler']:
             config['scheduler']['anime_episode_type'] = {}
 
@@ -909,13 +913,10 @@ def run_setup():
             config['scheduler']['anime_episode_type']['dates'] = [int(date)]
             config['scheduler']['anime_episode_type']['time'] = time
 
-    # Configure scheduler for TV Status Tracker if enabled
     if tv_status_service:
-        # Make sure the scheduler section exists
         if 'scheduler' not in config:
             config['scheduler'] = {}
 
-        # Create service-specific schedule section
         if 'tv_status_tracker' not in config['scheduler']:
             config['scheduler']['tv_status_tracker'] = {}
 
@@ -948,13 +949,10 @@ def run_setup():
             config['scheduler']['tv_status_tracker']['dates'] = [int(date)]
             config['scheduler']['tv_status_tracker']['time'] = time
 
-    # Configure scheduler for Size Overlay if enabled
     if size_overlay_service:
-        # Make sure the scheduler section exists
         if 'scheduler' not in config:
             config['scheduler'] = {}
 
-        # Create service-specific schedule section
         if 'size_overlay' not in config['scheduler']:
             config['scheduler']['size_overlay'] = {}
 
@@ -987,7 +985,6 @@ def run_setup():
             config['scheduler']['size_overlay']['dates'] = [int(date)]
             config['scheduler']['size_overlay']['time'] = time
 
-    # Notifications settings
     console.print("\n[bold]Notifications[/bold]")
     console.print("[yellow]Would you like to enable Discord notifications for updates and errors?[/yellow]")
     enable_notifications = click.confirm("Enable notifications?", default=True)
@@ -1004,40 +1001,34 @@ def run_setup():
             webhook_url = click.prompt("Enter your Discord webhook URL", default="")
             config['notifications']['discord'] = {'webhook_url': webhook_url}
 
-            # Test notification if a webhook URL was provided
             if webhook_url:
                 if click.confirm("Would you like to test Discord notifications now?", default=True):
                     notification_works = test_discord_notification(webhook_url)
 
-                    # If the test failed, give the user a chance to correct their webhook
                     if not notification_works:
                         console.print("[yellow]The test notification failed. Would you like to update your webhook URL?[/yellow]")
                         if click.confirm("Update webhook URL?", default=True):
                             webhook_url = click.prompt("Enter your Discord webhook URL")
                             config['notifications']['discord']['webhook_url'] = webhook_url
 
-                            # Test again with the new URL
                             if webhook_url:
                                 test_discord_notification(webhook_url)
 
-    # Save configuration
-    with open(config_path, 'w') as file:
-        yaml.dump(config, file)
+    save_config_with_comments(config, config_path)
 
-    console.print("\n[bold green]Configuration saved to config/config.yaml[/bold green]")
+    console.print(f"\n[bold green]Configuration saved to {config_path}[/bold green]")
+    console.print(f"[dim]Note: In {config_path}, under 'services.tv_status_tracker.overlay',")
+    console.print(f"[dim]the 'overlay_style' can be 'background_color' or 'colored_text'.[/dim]")
 
-    # Initialize data directory if it doesn't exist
     data_dir = DATA_DIR
     if os.environ.get('RUNNING_IN_DOCKER') == 'true':
         data_dir = "/app/data"
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
 
-    # Create directories for Kometa integration
     yaml_output_dir = config['kometa_config']['yaml_output_dir']
     collections_dir = config['kometa_config']['collections_dir']
 
-    # Only try to create if running in Docker
     if os.environ.get('RUNNING_IN_DOCKER') == 'true':
         try:
             if not os.path.exists(yaml_output_dir):
@@ -1051,7 +1042,6 @@ def run_setup():
             console.print(f"[yellow]Warning: Could not create directories: {str(e)}[/yellow]")
             console.print("[yellow]Make sure these directories are mapped in your docker-compose.yml[/yellow]")
 
-    # Setup assets
     if os.environ.get('RUNNING_IN_DOCKER') == 'true':
         console.print("\n[bold]Setting up assets...[/bold]")
         try:
@@ -1061,7 +1051,6 @@ def run_setup():
             console.print(f"[yellow]Warning: Could not setup assets: {str(e)}[/yellow]")
             console.print("[yellow]You may need to manually copy collection posters and fonts.[/yellow]")
 
-    # Initialize Trakt authentication right away
     console.print("\n[bold]Now authenticating with Trakt.tv...[/bold]")
     import trakt_auth
     auth_success = trakt_auth.ensure_auth_during_setup(config)
@@ -1071,7 +1060,6 @@ def run_setup():
     else:
         console.print("\n[bold yellow]Setup complete, but Trakt authentication will be needed when you run commands.[/bold yellow]")
 
-    # Setup assets and overlay files
     if os.environ.get('RUNNING_IN_DOCKER') == 'true':
         console.print("\n[bold]Setting up assets and overlay files...[/bold]")
         try:
@@ -1085,7 +1073,6 @@ def run_setup():
             console.print(f"[yellow]Warning: Could not setup all assets: {str(e)}[/yellow]")
             console.print("[yellow]You may need to manually create overlay files.[/yellow]")
 
-    # Summary
     console.print("\n[bold]Services Configuration Summary:[/bold]")
     if config['services']['anime_episode_type']['enabled']:
         console.print("✅ Anime Episode Type Tracker [green]ENABLED[/green]")
@@ -1094,7 +1081,6 @@ def run_setup():
         if libraries:
             console.print(f"   [dim]Libraries: {', '.join(libraries)}[/dim]")
 
-        # Show schedule
         if 'anime_episode_type' in config['scheduler']:
             sched = config['scheduler']['anime_episode_type']
             sched_type = sched.get('type')
@@ -1116,7 +1102,6 @@ def run_setup():
         if libraries:
             console.print(f"   [dim]Libraries: {', '.join(libraries)}[/dim]")
 
-        # Show schedule
         if 'tv_status_tracker' in config['scheduler']:
             sched = config['scheduler']['tv_status_tracker']
             sched_type = sched.get('type')
@@ -1131,7 +1116,6 @@ def run_setup():
     else:
         console.print("❌ TV/Anime Status Tracker [red]DISABLED[/red]")
 
-    # Show Size Overlay status 
     if config['services']['size_overlay']['enabled']:
         console.print("✅ Size Overlay Service [green]ENABLED[/green]")
         
@@ -1146,7 +1130,6 @@ def run_setup():
         if libraries:
             console.print(f"   [dim]Libraries: {', '.join(libraries)}[/dim]")
 
-        # Show schedule
         if 'size_overlay' in config['scheduler']:
             sched = config['scheduler']['size_overlay']
             sched_type = sched.get('type')
@@ -1161,12 +1144,10 @@ def run_setup():
     else:
         console.print("❌ Size Overlay Service [red]DISABLED[/red]")
 
-    # Show Kometa configuration
     console.print("\n[bold]Kometa Configuration:[/bold]")
     console.print(f"✅ Overlay YAML Path: [dim]{config['kometa_config']['yaml_output_dir']}[/dim]")
     console.print(f"✅ Collections Path: [dim]{config['kometa_config']['collections_dir']}[/dim]")
 
-    # Show notification status
     if config['notifications']['enabled']:
         if 'discord' in config['notifications'] and config['notifications']['discord'].get('webhook_url'):
             console.print("✅ Discord Notifications [green]ENABLED[/green]")
@@ -1175,7 +1156,6 @@ def run_setup():
     else:
         console.print("❌ Notifications [red]DISABLED[/red]")
 
-    # Important volume mapping information
     console.print("\n[bold yellow]Important:[/bold yellow] Make sure to map these directories in your docker-compose.yml:")
     console.print(f"  Container path: {yaml_output_dir}")
     console.print(f"  Container path: {collections_dir}")
@@ -1191,16 +1171,29 @@ def run_setup():
     if config['services']['anime_episode_type']['enabled']:
         console.print("2. Create your first anime list: [green]docker compose run --rm dakosys create-all 'One Piece' or docker compose run --rm dakosys create one-piece MANGA [/green]")
 
-# Allow running directly
+def save_config_with_comments(config, path):
+    """Save config to YAML with comments."""
+    with open(path, 'w') as file:
+        if 'services' in config and 'tv_status_tracker' in config['services']:
+            tv_status_overlay = config['services']['tv_status_tracker']['overlay']
+            tv_status_overlay_yaml = yaml.dump({'overlay': tv_status_overlay}, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            
+            lines = tv_status_overlay_yaml.split('\n')
+            for i, line in enumerate(lines):
+                if 'overlay_style:' in line:
+                    lines.insert(i, '    
+                    break
+            
+            config['services']['tv_status_tracker']['overlay'] = yaml.safe_load('\n'.join(lines))['overlay']
+
+        yaml.dump(config, file, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
 if __name__ == "__main__":
-    # Parse command line arguments
     parser = argparse.ArgumentParser(description='DAKOSYS Setup Script')
     parser.add_argument('-service', '--service', help='Configure a specific service only (anime_episode_type, tv_status_tracker, size_overlay)')
     args = parser.parse_args()
 
     if args.service:
-        # Run targeted setup for the specified service
         setup_service(args.service)
     else:
-        # Run full setup
         run_setup()

@@ -12,22 +12,18 @@ import requests
 from rich.console import Console
 from shared_utils import setup_rotating_logger
 
-# Define __all__ for explicit exports
 __all__ = ['setup_assets', 'sync_anime_episode_collections', 'create_anime_overlay_files', 'update_anime_episode_collections']
 
-# Initialize console for rich output
 console = Console()
 
-# Setup logger with rotation
 if os.environ.get('RUNNING_IN_DOCKER') == 'true':
     data_dir = "/app/data"
 else:
-    data_dir = "data"  # Changed from DATA_DIR to a string literal
+    data_dir = "data"  
 
 log_file = os.path.join(data_dir, "anime_trakt_manager.log")
 logger = setup_rotating_logger("anime_trakt_manager", log_file)
 
-# Container paths (where assets are stored in the Docker image)
 CONTAINER_ASSETS_DIR = "/app/assets"
 CONTAINER_FONTS_DIR = "/app/fonts"
 
@@ -45,18 +41,15 @@ def ensure_directory(directory):
 
 def get_kometa_paths(config):
     """Get overlay and collections paths from config, with fallbacks for backward compatibility."""
-    # Check global kometa_config first (new format)
     yaml_output_dir = config.get('kometa_config', {}).get('yaml_output_dir')
     collections_dir = config.get('kometa_config', {}).get('collections_dir')
 
-    # Fallback to tv_status_tracker config (old format)
     if not yaml_output_dir and 'services' in config and 'tv_status_tracker' in config['services']:
         yaml_output_dir = config['services']['tv_status_tracker'].get('yaml_output_dir')
 
     if not collections_dir and 'services' in config and 'tv_status_tracker' in config['services']:
         collections_dir = config['services']['tv_status_tracker'].get('collections_dir')
 
-    # Final fallback to defaults
     if not yaml_output_dir:
         yaml_output_dir = '/kometa/config/overlays'
 
@@ -68,12 +61,10 @@ def get_kometa_paths(config):
 def copy_asset(source, destination):
     """Copy an asset file, creating destination directory if needed."""
     try:
-        # Make sure destination directory exists
         dest_dir = os.path.dirname(destination)
         if not ensure_directory(dest_dir):
             return False
 
-        # Copy the file
         shutil.copy2(source, destination)
         logger.info(f"Copied asset: {source} -> {destination}")
         return True
@@ -83,22 +74,17 @@ def copy_asset(source, destination):
 
 def setup_collection_posters(config):
     """Setup collection poster images."""
-    # Get the Kometa paths with fallbacks
     _, collections_dir = get_kometa_paths(config)
 
-    # Extract the parent directory
     kometa_config = os.path.dirname(collections_dir)
 
-    # Ensure the assets directory exists
     assets_dir = os.path.join(kometa_config, "assets", "Next Airing")
     if not ensure_directory(assets_dir):
         return False
 
-    # Define source and destination paths
     poster_source = os.path.join(CONTAINER_ASSETS_DIR, "next_airing_poster.jpg")
     poster_dest = os.path.join(assets_dir, "poster.jpg")
 
-    # Copy the poster
     if os.path.exists(poster_source):
         return copy_asset(poster_source, poster_dest)
     else:
@@ -107,30 +93,26 @@ def setup_collection_posters(config):
 
 def setup_fonts(config):
     """Setup fonts for TV Status Tracker."""
-    # Get font directory from config or use default
     kometa_config = "/kometa/config"
     if 'services' in config and 'tv_status_tracker' in config['services']:
         collections_dir = config['services']['tv_status_tracker'].get('collections_dir', '/kometa/config/collections')
         kometa_config = os.path.dirname(collections_dir)
 
-    # Ensure the fonts directory exists
-    fonts_dir = os.path.join(kometa_config, "fonts")
+    font_directory_name = config.get('kometa_config', {}).get('font_directory', 'config/fonts')
+    fonts_dir = os.path.join(kometa_config, font_directory_name) 
     if not ensure_directory(fonts_dir):
         return False
 
-    # Copy the Juventus font
-    font_source = os.path.join(CONTAINER_FONTS_DIR, "Juventus-Fans-Bold.ttf")
-    font_dest = os.path.join(fonts_dir, "Juventus-Fans-Bold.ttf")
+    default_font_filename = "Juventus-Fans-Bold.ttf"
+    font_source = os.path.join(CONTAINER_FONTS_DIR, default_font_filename)
+    font_dest = os.path.join(fonts_dir, default_font_filename)
 
     if os.path.exists(font_source):
         if copy_asset(font_source, font_dest):
-            # Update font path in config
-            if 'services' in config and 'tv_status_tracker' in config['services']:
-                config['services']['tv_status_tracker']['font_path'] = font_dest
-                logger.info(f"Updated font path in config to: {font_dest}")
+            logger.info(f"Default font '{default_font_filename}' ensured at {font_dest}")
             return True
     else:
-        logger.warning(f"Font not found in container: {font_source}")
+        logger.warning(f"Default font not found in container: {font_source}")
 
     return False
 
@@ -146,27 +128,22 @@ def sync_anime_episode_collections(config, force_update=False):
     """
     logger = logging.getLogger("asset_manager")
 
-    # Get the Kometa paths
     yaml_output_dir, collections_dir = get_kometa_paths(config)
 
-    # Ensure the collections directory exists
     if not ensure_directory(collections_dir):
         return False
 
-    # Get Trakt username from config
     trakt_username = config.get('trakt', {}).get('username')
     if not trakt_username:
         logger.error("Trakt username not found in config - cannot proceed without it")
         return False
 
-    # Get all lists from Trakt
     import trakt_auth
     access_token = trakt_auth.ensure_trakt_auth(quiet=True)
     if not access_token:
         logger.error("Failed to get Trakt access token")
         return False
 
-    # Get all Trakt lists
     headers = trakt_auth.get_trakt_headers(access_token)
     trakt_api_url = 'https://api.trakt.tv'
     lists_url = f"{trakt_api_url}/users/{trakt_username}/lists"
@@ -178,7 +155,6 @@ def sync_anime_episode_collections(config, force_update=False):
 
     trakt_lists = response.json()
 
-    # Organize lists by collection type
     collections_data = {
         'Fillers': [],
         'Manga Canon': [],
@@ -186,7 +162,6 @@ def sync_anime_episode_collections(config, force_update=False):
         'Mixed Canon/Filler': []
     }
 
-    # Track which lists we found to detect changes
     found_lists = set()
 
     for trakt_list in trakt_lists:
@@ -196,11 +171,9 @@ def sync_anime_episode_collections(config, force_update=False):
             if len(parts) == 2:
                 anime_name, episode_type = parts
 
-                # Format URL with slug for consistency
                 list_slug = trakt_list.get('ids', {}).get('slug', name)
                 list_url = f"https://trakt.tv/users/{trakt_username}/lists/{list_slug}"
 
-                # Determine which collection this belongs to
                 if episode_type.lower() == 'filler':
                     collections_data['Fillers'].append(list_url)
                     found_lists.add(list_url)
@@ -223,10 +196,9 @@ def sync_anime_episode_collections(config, force_update=False):
                     collections_data['Mixed Canon/Filler'].append(list_url)
                     found_lists.add(list_url)
 
-    # Read existing collection file to preserve settings
     collections_file = os.path.join(collections_dir, 'anime_episode_type.yml')
     existing_collections = None
-    changes_detected = force_update  # Start with force_update value
+    changes_detected = force_update 
 
     if os.path.exists(collections_file):
         try:
@@ -238,7 +210,6 @@ def sync_anime_episode_collections(config, force_update=False):
     else:
         existing_collections = {'collections': {}}
 
-    # Check if there are any changes compared to existing file
     if not force_update and existing_collections:
         for collection_name, collection_data in existing_collections.get('collections', {}).items():
             existing_lists = set(collection_data.get('trakt_list', []))
@@ -249,21 +220,15 @@ def sync_anime_episode_collections(config, force_update=False):
                     changes_detected = True
                     break
 
-    # Only update if changes detected or force_update
     if changes_detected:
-        # Create the new collections structure
         new_collections = {'collections': {}}
 
-        # For each collection type, preserve settings and update the lists
         for collection_name, list_urls in collections_data.items():
-            # Get existing settings or use defaults
             collection_settings = {}
             if existing_collections and 'collections' in existing_collections and collection_name in existing_collections['collections']:
                 collection_settings = existing_collections['collections'][collection_name].copy()
-                # Update only the trakt_list field
                 collection_settings['trakt_list'] = list_urls
             else:
-                # Use default settings
                 collection_settings = {
                     'trakt_list': list_urls,
                     'sync_mode': 'sync',
@@ -274,12 +239,10 @@ def sync_anime_episode_collections(config, force_update=False):
 
             new_collections['collections'][collection_name] = collection_settings
 
-        # Write the collections file
         try:
             with open(collections_file, 'w') as file:
                 yaml.dump(new_collections, file, default_flow_style=False, sort_keys=False)
             
-            # Also create/update the overlay files
             create_anime_overlay_files(config)
             
             return True
@@ -292,18 +255,15 @@ def sync_anime_episode_collections(config, force_update=False):
 
 def create_anime_overlay_files(config):
     """Create the overlay files for anime episode types."""
-    # Get the Kometa paths with fallbacks
     yaml_output_dir, _ = get_kometa_paths(config)
     logger = logging.getLogger("asset_manager")
     overlay_settings = config.get('services', {}).get('anime_episode_type', {}).get('overlay', {})
 
-    # Ensure the overlays directory exists
     if not ensure_directory(yaml_output_dir):
         return False
 
     font_path = "config/fonts/Juventus-Fans-Bold.ttf"
 
-    # Create the four overlay files with your custom overlay_names
     overlay_configs = {
         'fillers.yml': {
             'overlay_name': 'filler_overlay',
@@ -331,7 +291,6 @@ def create_anime_overlay_files(config):
     for filename, values in overlay_configs.items():
         overlay_file = os.path.join(yaml_output_dir, filename)
         
-        # Skip if file already exists
         if os.path.exists(overlay_file):
             continue
             
@@ -370,30 +329,47 @@ def create_anime_overlay_files(config):
     return success
 
 def update_anime_episode_collections(config):
-    """Update the anime episode type collections file in Kometa.
-    Now uses the sync_anime_episode_collections function to ensure YAML stays in sync with Trakt lists."""
-    # Use the sync function which handles all cases: new lists, deleted lists, and setting preservation
+    """Update the anime episode type collections file in Kometa."""
     return sync_anime_episode_collections(config, force_update=True)
 
 def setup_assets(config):
     """Setup all assets for DAKOSYS."""
     console.print("[bold blue]Setting up DAKOSYS assets...[/bold blue]")
 
-    # Setup collection posters
     poster_result = setup_collection_posters(config)
     if poster_result:
         console.print("[green]Collection poster setup successfully[/green]")
     else:
         console.print("[yellow]Collection poster setup failed or skipped[/yellow]")
 
-    # Setup fonts
     font_result = setup_fonts(config)
     if font_result:
         console.print("[green]Fonts setup successfully[/green]")
     else:
         console.print("[yellow]Fonts setup failed or skipped[/yellow]")
 
-    # Setup anime episode collections
+    console.print("[blue]Setting up general assets...[/blue]")
+    kometa_config_base = os.path.dirname(get_kometa_paths(config)[1]) 
+    asset_directory_name = config.get('kometa_config', {}).get('asset_directory', 'config/assets')
+    general_assets_dest_dir = os.path.join(kometa_config_base, asset_directory_name) 
+    
+    if ensure_directory(general_assets_dest_dir):
+        gradient_files = ["gradient_top.png", "gradient_bottom.png"]
+        for filename in gradient_files:
+            gradient_source = os.path.join(CONTAINER_ASSETS_DIR, filename)
+            gradient_dest = os.path.join(general_assets_dest_dir, filename)
+            if os.path.exists(gradient_source):
+                if copy_asset(gradient_source, gradient_dest):
+                    console.print(f"[green]Gradient asset '{filename}' setup successfully[/green]")
+                else:
+                    console.print(f"[yellow]Gradient asset '{filename}' setup failed[/yellow]")
+            else:
+                logger.warning(f"Gradient asset not found in container: {gradient_source}")
+                console.print(f"[yellow]Gradient asset not found: {gradient_source}[/yellow]")
+    else:
+        console.print("[yellow]Could not ensure general assets directory for Kometa config.[/yellow]")
+
+
     if config.get('services', {}).get('anime_episode_type', {}).get('enabled', False):
         console.print("[blue]Setting up anime episode type collections...[/blue]")
         collections_result = update_anime_episode_collections(config)
@@ -411,21 +387,17 @@ def setup_assets(config):
 
     return True
 
-# Can be run directly to set up assets
 if __name__ == "__main__":
     import yaml
 
-    # Load config
     config_path = "/app/config/config.yaml" if os.environ.get('RUNNING_IN_DOCKER') == 'true' else "config/config.yaml"
     try:
         with open(config_path, 'r') as file:
             config = yaml.safe_load(file)
 
-        # Save config with any updates from asset setup
         setup_result = setup_assets(config)
 
         if setup_result:
-            # Save the updated config
             with open(config_path, 'w') as file:
                 yaml.dump(config, file)
     except Exception as e:
