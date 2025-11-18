@@ -137,6 +137,7 @@ def process_movie_library(plex, library):
                 
                 movies_info.append({
                     'title': movie.title,
+                    'year': movie.year,
                     'size_gb': size_gb,
                     'key': movie.key,
                     'numerical_key': extract_key(movie.key)
@@ -197,6 +198,7 @@ def process_show_library(plex, library):
                 
                 shows_info.append({
                     'title': show.title,
+                    'year': show.year,
                     'size_gb': size_gb,
                     'key': show.key,
                     'numerical_key': extract_key(show.key),
@@ -270,7 +272,12 @@ def generate_movie_overlay_yaml(movies_info, library_title, overlay_config):
 
     for movie in movies_info:
         base_key = f"{library_title}-{movie['numerical_key']}-{movie['size_gb']}-GB"
-        plex_search = {"all": {"title.is": sanitize_title_for_search(movie['title'])}}
+        plex_search = {
+            "all": {
+                "title.is": sanitize_title_for_search(movie['title']),
+                "year": movie['year']
+            }
+        }
 
         if apply_gradient:
             gradient_overlay_key = f"{base_key}-gradient"
@@ -364,7 +371,12 @@ def generate_show_overlay_yaml(shows_info, library_title, overlay_config):
 
     for show in shows_info:
         base_key = f"{library_title}-{show['numerical_key']}-{show['size_gb']}-GB"
-        plex_search = {"all": {"title.is": sanitize_title_for_search(show['title'])}}
+        plex_search = {
+            "all": {
+                "title.is": sanitize_title_for_search(show['title']),
+                "year": show['year']
+            }
+        }
         
         if show_episode_count:
             overlay_text = f"{show['size_gb']} GB ({show['episode_count']} episodes)"
@@ -489,12 +501,12 @@ def track_library_changes(library_title, library_type, current_data, previous_si
 
     if not is_first_run:
         for item in current_data:
-            title = item['title']
+            unique_key = f"{item['title']} ({item['year']})"
             current_size = item['size_gb']
-            previous_size = previous_items.get(title, None)
+            previous_size = previous_items.get(unique_key, None)
             
             current_episode_count = item.get('episode_count', 0) if library_type == 'show' else 0
-            previous_episode_count = previous_episodes.get(title, 0) if library_type == 'show' else 0
+            previous_episode_count = previous_episodes.get(unique_key, 0) if library_type == 'show' else 0
 
             if previous_size is None:
                 change_type = "NEW"
@@ -514,7 +526,7 @@ def track_library_changes(library_title, library_type, current_data, previous_si
                 continue
 
             change_item = {
-                'title': title,
+                'title': unique_key,
                 'previous_size': previous_size,
                 'current_size': current_size,
                 'change': size_change,
@@ -533,30 +545,51 @@ def track_library_changes(library_title, library_type, current_data, previous_si
 
             item_changes.append(change_item)
         
-        for title, previous_size in previous_items.items():
-            if not any(item['title'] == title for item in current_data):
-                change_type = "REMOVED"
-                size_change = -previous_size  
-                
-                change_item = {
-                    'title': title,
-                    'previous_size': previous_size,
-                    'current_size': 0,
-                    'change': size_change,
-                    'type': change_type,
-                    'library_type': library_type
-                }
-                
-                if library_type == 'show' and title in previous_episodes:
-                    change_item['previous_episode_count'] = previous_episodes[title]
-                
-                item_changes.append(change_item)
+        for unique_key, previous_size in previous_items.items():
+            title_year = re.match(r"^(.*) \((\d{4})\)$", unique_key)
+            if title_year:
+                title, year = title_year.groups()
+                if not any(item['title'] == title and str(item['year']) == year for item in current_data):
+                    change_type = "REMOVED"
+                    size_change = -previous_size
+                    
+                    change_item = {
+                        'title': unique_key,
+                        'previous_size': previous_size,
+                        'current_size': 0,
+                        'change': size_change,
+                        'type': change_type,
+                        'library_type': library_type
+                    }
 
-    new_items = {item['title']: item['size_gb'] for item in current_data}
+                    if library_type == 'show' and unique_key in previous_episodes:
+                        change_item['previous_episode_count'] = previous_episodes[unique_key]
+                    
+                    item_changes.append(change_item)
+            else:
+                if not any(item['title'] == unique_key for item in current_data):
+                    change_type = "REMOVED"
+                    size_change = -previous_size
+                    
+                    change_item = {
+                        'title': unique_key,
+                        'previous_size': previous_size,
+                        'current_size': 0,
+                        'change': size_change,
+                        'type': change_type,
+                        'library_type': library_type
+                    }
+
+                    if library_type == 'show' and unique_key in previous_episodes:
+                        change_item['previous_episode_count'] = previous_episodes[unique_key]
+                    
+                    item_changes.append(change_item)
+
+    new_items = {f"{item['title']} ({item['year']})": item['size_gb'] for item in current_data}
     
     new_episodes = {}
     if library_type == 'show':
-        new_episodes = {item['title']: item.get('episode_count', 0) for item in current_data}
+        new_episodes = {f"{item['title']} ({item['year']})": item.get('episode_count', 0) for item in current_data}
     
     previous_sizes[library_key] = {
         'total_size': total_size,
