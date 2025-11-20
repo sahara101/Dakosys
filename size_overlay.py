@@ -379,7 +379,7 @@ def generate_show_overlay_yaml(shows_info, library_title, overlay_config):
         }
         
         if show_episode_count:
-            overlay_text = f"{show['size_gb']} GB ({show['episode_count']} episodes)"
+            overlay_text = f"{show['size_gb']} GB • {show['episode_count']} episodes"
         else:
             overlay_text = f"{show['size_gb']} GB"
 
