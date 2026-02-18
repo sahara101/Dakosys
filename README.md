@@ -388,6 +388,26 @@ docker compose run --rm dakosys test-scheduler
 docker compose run --rm dakosys test-notification
 ```
 
+## TV Status Tracker - Custom Status Labels
+
+By default the TV Status Tracker displays status text in English (AIRING, E N D E D, etc.). You can override any or all of these labels in your config.yaml to translate them or change the wording:
+
+```yaml
+services:
+  tv_status_tracker:
+    labels:
+      ended: "T E R M I N E E"
+      cancelled: "A N N U L E E"
+      returning: "R E V I E N T"
+      airing: "EN COURS"
+      season_finale: "FIN DE SAISON"
+      mid_season_finale: "MI-SAISON"
+      final_episode: "EPISODE FINAL"
+      season_premiere: "PREMIERE SAISON"
+```
+
+All keys are optional. Any label you omit falls back to the English default. The `airing`, `season_finale`, `mid_season_finale`, `final_episode`, and `season_premiere` labels automatically have the air date appended (e.g. `EN COURS 18/02`).
+
 ## 📚 Advanced Configuration
 
 For advanced users, the full configuration is stored in config/config.yaml. You can also use service-specific setup:

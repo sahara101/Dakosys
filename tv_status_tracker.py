@@ -57,6 +57,18 @@ class TVStatusTracker:
 
         self.tv_status_config = config['services']['tv_status_tracker']
         self.colors = self.tv_status_config.get('colors', {})
+
+        _default_labels = {
+            'ended': 'E N D E D',
+            'cancelled': 'C A N C E L L E D',
+            'returning': 'R E T U R N I N G',
+            'airing': 'AIRING',
+            'season_finale': 'SEASON FINALE',
+            'mid_season_finale': 'MID SEASON FINALE',
+            'final_episode': 'FINAL EPISODE',
+            'season_premiere': 'SEASON PREMIERE',
+        }
+        self.labels = {**_default_labels, **self.tv_status_config.get('labels', {})}
         self.yaml_output_dir = config.get('kometa_config', {}).get('yaml_output_dir', '/kometa/config/overlays')
         self.collections_dir = config.get('kometa_config', {}).get('collections_dir', '/kometa/config/collections')
 
@@ -250,16 +262,20 @@ class TVStatusTracker:
                         text_content = 'UNKNOWN'
                         back_color = self.colors.get(status.upper(), '#FFFFFF')
 
+                        status_type = 'UNKNOWN'
+
                         if status == 'ended':
-                            text_content = 'E N D E D'
+                            text_content = self.labels['ended']
                             back_color = self.colors['ENDED']
+                            status_type = 'ENDED'
                         elif status == 'canceled':
-                            text_content = 'C A N C E L L E D'
+                            text_content = self.labels['cancelled']
                             back_color = self.colors['CANCELLED']
+                            status_type = 'CANCELLED'
                         elif status == 'returning series':
                             next_episode_url = f'https://api.trakt.tv/shows/{trakt_id}/next_episode?extended=full'
                             next_episode_response = make_trakt_api_call(next_episode_url)
-                        
+
                             if next_episode_response and next_episode_response.json():
                                 episode_data = next_episode_response.json()
                                 first_aired = episode_data.get('first_aired')
@@ -268,30 +284,35 @@ class TVStatusTracker:
                                 if first_aired:
                                     utc_time = datetime.strptime(first_aired, '%Y-%m-%dT%H:%M:%S.000Z')
                                     local_time = utc_time.replace(tzinfo=pytz.utc).astimezone(pytz.timezone(self.timezone))
-                                    
+
                                     user_preference = self.config.get('date_format', 'DD/MM').upper()
                                     if user_preference == 'MM/DD':
                                         strftime_pattern = '%m/%d'
-                                    else: 
+                                    else:
                                         strftime_pattern = '%d/%m'
-                                        
+
                                     date_str = local_time.strftime(strftime_pattern)
 
                                     if episode_type == 'season_finale':
-                                        text_content = f'SEASON FINALE {date_str}'
+                                        text_content = f"{self.labels['season_finale']} {date_str}"
                                         back_color = self.colors['SEASON_FINALE']
+                                        status_type = 'SEASON_FINALE'
                                     elif episode_type == 'mid_season_finale':
-                                        text_content = f'MID SEASON FINALE {date_str}'
+                                        text_content = f"{self.labels['mid_season_finale']} {date_str}"
                                         back_color = self.colors['MID_SEASON_FINALE']
+                                        status_type = 'MID_SEASON_FINALE'
                                     elif episode_type == 'series_finale':
-                                        text_content = f'FINAL EPISODE {date_str}'
+                                        text_content = f"{self.labels['final_episode']} {date_str}"
                                         back_color = self.colors['FINAL_EPISODE']
+                                        status_type = 'FINAL_EPISODE'
                                     elif episode_type == 'season_premiere':
-                                        text_content = f'SEASON PREMIERE {date_str}'
+                                        text_content = f"{self.labels['season_premiere']} {date_str}"
                                         back_color = self.colors['SEASON_PREMIERE']
+                                        status_type = 'SEASON_PREMIERE'
                                     else:
-                                        text_content = f'AIRING {date_str}'
+                                        text_content = f"{self.labels['airing']} {date_str}"
                                         back_color = self.colors['AIRING']
+                                        status_type = 'AIRING'
 
                                     self.airing_shows.append({
                                         'trakt_id': trakt_id,
@@ -300,14 +321,16 @@ class TVStatusTracker:
                                         'episode_type': episode_type
                                     })
                             else:
-                                text_content = 'R E T U R N I N G'
+                                text_content = self.labels['returning']
                                 back_color = self.colors['RETURNING']
+                                status_type = 'RETURNING'
 
                         console.print(f"[blue]Status: {text_content}[/blue]")
                         return {
                             'text_content': text_content,
                             'back_color': back_color,
-                            'font': self.font_path_yaml
+                            'font': self.font_path_yaml,
+                            'status_type': status_type,
                         }
 
         logging.debug(f"No status information found for: {show.title}")
@@ -564,22 +587,7 @@ collections:
                                 status_key = None
 
                                 if status_changed:
-                                    if 'AIRING' in show_info['text_content']:
-                                        status_key = 'AIRING'
-                                    elif 'MID SEASON FINALE' in show_info['text_content']:
-                                        status_key = 'MID_SEASON_FINALE'
-                                    elif 'SEASON FINALE' in show_info['text_content']:
-                                        status_key = 'SEASON_FINALE'
-                                    elif 'FINAL EPISODE' in show_info['text_content']:
-                                        status_key = 'FINAL_EPISODE'
-                                    elif 'SEASON PREMIERE' in show_info['text_content']:
-                                        status_key = 'SEASON_PREMIERE'
-                                    elif 'R E T U R N I N G' in show_info['text_content']:
-                                        status_key = 'RETURNING'
-                                    elif 'E N D E D' in show_info['text_content']:
-                                        status_key = 'ENDED'
-                                    elif 'C A N C E L L E D' in show_info['text_content']:
-                                        status_key = 'CANCELLED'
+                                    status_key = show_info.get('status_type')
                                 elif date_changed and not status_changed:
                                     status_key = 'DATE_CHANGED'
 
@@ -597,19 +605,7 @@ collections:
                             curr = current_status[show.title]
 
                             if is_first_run:
-                                status_key = None
-                                if 'AIRING' in show_info['text_content']:
-                                    status_key = 'AIRING'
-                                elif 'MID SEASON FINALE' in show_info['text_content']:
-                                    status_key = 'MID_SEASON_FINALE'
-                                elif 'SEASON FINALE' in show_info['text_content']:
-                                    status_key = 'SEASON_FINALE'
-                                elif 'FINAL EPISODE' in show_info['text_content']:
-                                    status_key = 'FINAL_EPISODE'
-                                elif 'SEASON PREMIERE' in show_info['text_content']:
-                                    status_key = 'SEASON_PREMIERE'
-                                elif 'R E T U R N I N G' in show_info['text_content']:
-                                    status_key = 'RETURNING'
+                                status_key = show_info.get('status_type')
 
                                 if status_key and (bool(curr['date']) or status_key == 'FINAL_EPISODE'):
                                     changes[status_key].append({
@@ -622,23 +618,7 @@ collections:
                                         'library': library_name
                                     })
                             else:
-                                status_key = None
-                                if 'AIRING' in show_info['text_content']:
-                                    status_key = 'AIRING'
-                                elif 'MID SEASON FINALE' in show_info['text_content']:
-                                    status_key = 'MID_SEASON_FINALE'
-                                elif 'SEASON FINALE' in show_info['text_content']:
-                                    status_key = 'SEASON_FINALE'
-                                elif 'FINAL EPISODE' in show_info['text_content']:
-                                    status_key = 'FINAL_EPISODE'
-                                elif 'SEASON PREMIERE' in show_info['text_content']:
-                                    status_key = 'SEASON_PREMIERE'
-                                elif 'R E T U R N I N G' in show_info['text_content']:
-                                    status_key = 'RETURNING'
-                                elif 'E N D E D' in show_info['text_content']:
-                                    status_key = 'ENDED'
-                                elif 'C A N C E L L E D' in show_info['text_content']:
-                                    status_key = 'CANCELLED'
+                                status_key = show_info.get('status_type')
 
                                 if status_key:
                                     changes[status_key].append({
