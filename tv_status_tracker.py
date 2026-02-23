@@ -41,15 +41,9 @@ class TVStatusTracker:
         self.plex_token = config['plex']['token']
 
         self.libraries = []
-        if 'libraries' in config['plex']:
-            if config['plex']['libraries'].get('anime', []):
-                self.libraries.extend(config['plex']['libraries']['anime'])
-
-            if config['plex']['libraries'].get('tv', []):
-                self.libraries.extend(config['plex']['libraries']['tv'])
-
-        elif 'library' in config['plex']:
-            self.libraries.append(config['plex']['library'])
+        plex_libs = config['plex'].get('libraries', {})
+        self.libraries.extend(plex_libs.get('anime', []))
+        self.libraries.extend(plex_libs.get('tv', []))
 
         self.timezone = config['timezone']
 
@@ -207,10 +201,12 @@ class TVStatusTracker:
                         try:
                             response = requests.get(url, headers=headers, timeout=timeout_seconds)
                     
-                            if response.status_code == 200: 
-                                return response 
-                    
-                            if response.status_code == 429: 
+                            if response.status_code == 200:
+                                return response
+                            if response.status_code == 204:
+                                return None  # No content — expected when no next episode is scheduled
+
+                            if response.status_code == 429:
                                 retry_after = 10 
                                 if 'Retry-After' in response.headers:
                                     try:
@@ -691,7 +687,7 @@ collections:
                                 'overlay': text_overlay_details,
                                 'plex_search': plex_search_block
                             }
-                            logging.debug(f"Added text layer for {show.title} with status {show_info['text_content']}.")
+                            logger.info(f"Added text layer for {show.title} with status {show_info['text_content']}.")
 
                         elif self.overlay_style == 'background_color':
                             overlay_key = f'{library_name}_Status_{formatted_title}'

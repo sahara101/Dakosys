@@ -10,7 +10,6 @@ import json
 import logging
 from datetime import datetime
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -76,7 +75,6 @@ def send_discord_notification(title, message, failed_episodes=None, details=None
         }
         current_char_count = len(current_embed['title']) + len(current_embed['description'])
 
-        # Use provided custom fields if available
         if custom_fields:
             for field in custom_fields:
                 field_name = field['name'][:256]
@@ -153,7 +151,6 @@ def send_discord_notification(title, message, failed_episodes=None, details=None
                     "text": "Run 'docker compose run --rm dakosys fix-mappings' to resolve these issues"
                 }
 
-        # Send embeds in chunks of up to 10
         for i in range(0, len(all_embeds), 10):
             chunk = all_embeds[i:i+10]
             payload = {
@@ -309,7 +306,7 @@ def notify_tv_status_updates(changes, total_shows):
 
                 shows_text += line
 
-            field_name = f"{status_names.get(status, status)} ({len(shows)})"[:256]  # Limit name to 256 chars
+            field_name = f"{status_names.get(status, status)} ({len(shows)})"[:256]
 
             if len(shows_text) <= 1024:
                 field_value = shows_text.strip() or "No details available"

@@ -1,7 +1,9 @@
 services:
   dakosys:
     image: ghcr.io/sahara101/dakosys:latest
-    container_name: dakosys
+    container_name: dakosys-cli
+    profiles:
+      - cli
     volumes:
       - ./config:/app/config
       - ./data:/app/data
@@ -12,10 +14,12 @@ services:
 
   dakosys-updater:
     image: ghcr.io/sahara101/dakosys:latest
-    container_name: dakosys-updater
+    container_name: dakosys-web
     volumes:
       - ./config:/app/config
       - ./data:/app/data
       - /kometa:/kometa
+    ports:
+      - "3000:8000"
     restart: unless-stopped
     command: daemon
