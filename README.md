@@ -14,9 +14,7 @@ Trakt VIP required.
 
 Creates Trakt lists and Kometa overlays categorizing anime episodes by type: filler, manga canon, anime canon, and mixed. Supports automatic scheduling and custom title mappings for episodes that differ between AnimeFillerList and Trakt.
 
-![Anime Episode Type overlay](<img width="1426" height="331" alt="image" src="https://github.com/user-attachments/assets/28b631c0-1255-4642-9ed6-99a909e7949c" />
-<img width="1426" height="331" alt="image" src="https://github.com/user-attachments/assets/28b631c0-1255-4642-9ed6-99a909e7949c" />
-)
+![Anime Episode Type overlay](<img width="1426" height="331" alt="image" src="https://github.com/user-attachments/assets/28b631c0-1255-4642-9ed6-99a909e7949c" />)
 
 ### TV / Anime Status Tracker
 
@@ -24,9 +22,7 @@ No Trakt VIP required (uses one list).
 
 Creates overlays showing the airing status of TV shows and anime: currently airing, ended, cancelled, returning, season finale, mid-season finale, final episode, and season premiere. Displays upcoming air dates. Generates a Trakt list of shows with upcoming episodes.
 
-![TV Status overlay](<img width="1402" height="862" alt="image" src="https://github.com/user-attachments/assets/46c38565-5f89-40a4-bb2d-0fa7c0eb653b" />
-<img width="1402" height="862" alt="image" src="https://github.com/user-attachments/assets/46c38565-5f89-40a4-bb2d-0fa7c0eb653b" />
-)
+![TV Status overlay](<img width="1402" height="862" alt="image" src="https://github.com/user-attachments/assets/46c38565-5f89-40a4-bb2d-0fa7c0eb653b" />)
 
 ### Size Overlay
 
@@ -34,9 +30,7 @@ No Trakt required.
 
 Creates overlays showing file sizes for movies and TV shows. Tracks size changes over time and optionally displays episode counts.
 
-![Size overlay](<img width="1388" height="381" alt="image" src="https://github.com/user-attachments/assets/d2cb682b-8942-4f6b-bcf1-04451ba169c8" />
-<img width="1388" height="381" alt="image" src="https://github.com/user-attachments/assets/d2cb682b-8942-4f6b-bcf1-04451ba169c8" />
-)
+![Size overlay](<img width="1388" height="381" alt="image" src="https://github.com/user-attachments/assets/d2cb682b-8942-4f6b-bcf1-04451ba169c8" />)
 
 ### Web Dashboard
 
@@ -52,8 +46,6 @@ Features:
 - Setup wizard for first-time configuration
 
 <img width="1728" height="993" alt="image" src="https://github.com/user-attachments/assets/03af3c98-39f2-4121-99e2-74390d90f87b" />
-<img width="1728" height="993" alt="image" src="https://github.com/user-attachments/assets/03af3c98-39f2-4121-99e2-74390d90f87b" />
-
 
 ### Notifications
 
