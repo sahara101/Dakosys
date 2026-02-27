@@ -708,7 +708,8 @@ def add_episodes_to_trakt_list(list_id, episodes, access_token, trakt_show_id, m
                     anime_mapping = title_mappings.get(anime_name, {}) or {}
                     
                     if anime_mapping and 'special_matches' in anime_mapping:
-                        special_match = anime_mapping['special_matches'].get(episode_title)
+                        special_matches_lower = {k.lower(): v for k, v in anime_mapping['special_matches'].items()}
+                        special_match = special_matches_lower.get(episode_title)
                         if special_match:
                             mapped_title = special_match.lower()
                             if mapped_title.startswith("episode: "):

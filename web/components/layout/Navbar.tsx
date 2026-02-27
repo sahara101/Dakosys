@@ -177,7 +177,7 @@ export function Navbar({ isOpen = false, onClose }: NavbarProps) {
           rel="noopener noreferrer"
           className="text-zinc-600 hover:text-zinc-400 text-xs text-center block transition-colors"
         >
-          DAKOSYS v2.0
+          DAKOSYS v2.0.2
         </a>
       </div>
     </aside>
