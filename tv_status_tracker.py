@@ -11,6 +11,7 @@ import sys
 import json
 import yaml
 import time
+import shutil
 import logging
 import requests
 import pytz
@@ -18,9 +19,58 @@ from datetime import datetime
 from plexapi.server import PlexServer
 from rich.console import Console
 
+import tmdb_metadata
+import tvdb_metadata
+
 console = Console()
 
 logger = logging.getLogger("tv_status_tracker")
+
+TRAKT_ACCESS_DENIED_STATUSES = {401, 403, 420, 426}
+
+TEXT_FILE_MIN_KOMETA = (2, 3, 1)
+
+OVERLAY_STYLES = {'background_color', 'colored_text'}
+
+_AIR_DATE_FORMATS = (
+    '%Y-%m-%dT%H:%M:%S.%fZ',
+    '%Y-%m-%dT%H:%M:%SZ',
+    '%Y-%m-%dT%H:%M:%S%z',
+    '%Y-%m-%d',
+)
+
+
+def _kometa_supports_text_file(collections_dir):
+    """Return (supported, version) for the Kometa install next to a collections dir."""
+    version_file = os.path.join(
+        os.path.dirname(os.path.dirname(str(collections_dir).rstrip('/'))), 'VERSION'
+    )
+    try:
+        with open(version_file, 'r') as handle:
+            raw = handle.read().strip().split()[0]
+    except (OSError, IndexError):
+        return True, None
+
+    try:
+        parts = tuple(int(p) for p in raw.split('-')[0].split('.')[:3])
+    except ValueError:
+        return True, None
+
+    return parts >= TEXT_FILE_MIN_KOMETA, raw
+
+
+def _parse_air_date(value):
+    """Parse an air date that may be a full timestamp or a bare calendar date."""
+    if not value:
+        return datetime.max
+    text = str(value).strip()
+    for fmt in _AIR_DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    logger.warning(f"Unrecognized air date format: {value}")
+    return datetime.max
 
 class TVStatusTracker:
     """TV and Anime Status Tracker for DAKOSYS."""
@@ -47,7 +97,7 @@ class TVStatusTracker:
 
         self.timezone = config['timezone']
 
-        self.trakt_config = config['trakt']
+        self.trakt_config = config.get('trakt', {}) or {}
 
         self.tv_status_config = config['services']['tv_status_tracker']
         self.colors = self.tv_status_config.get('colors', {})
@@ -65,6 +115,38 @@ class TVStatusTracker:
         self.labels = {**_default_labels, **self.tv_status_config.get('labels', {})}
         self.yaml_output_dir = config.get('kometa_config', {}).get('yaml_output_dir', '/kometa/config/overlays')
         self.collections_dir = config.get('kometa_config', {}).get('collections_dir', '/kometa/config/collections')
+
+        next_airing_config = self.tv_status_config.get('next_airing', {}) or {}
+        provider = str(next_airing_config.get('provider', 'text_file')).strip().lower()
+        if provider not in ('trakt', 'text_file'):
+            logger.warning(f"Unknown next_airing provider '{provider}', falling back to 'trakt'")
+            provider = 'trakt'
+        self.next_airing_provider = provider
+        self.next_airing_text_file = (
+            next_airing_config.get('text_file_path')
+            or os.path.join(self.collections_dir, 'next-airing.txt')
+        )
+        kometa_path = next_airing_config.get('kometa_text_file_path')
+        if not kometa_path:
+            collections_name = os.path.basename(self.collections_dir.rstrip('/')) or 'collections'
+            kometa_path = os.path.join('config', collections_name,
+                                       os.path.basename(self.next_airing_text_file))
+        self.next_airing_text_file_ref = kometa_path
+
+        self.tmdb_api_key = str(config.get('tmdb_api_key', '') or '').strip()
+        default_provider = 'tvdb' if self.tmdb_api_key else 'trakt'
+        metadata_provider = str(
+            self.tv_status_config.get('metadata_provider', default_provider)
+        ).strip().lower()
+        if metadata_provider not in ('trakt', 'tmdb', 'tvdb'):
+            logger.warning(f"Unknown metadata_provider '{metadata_provider}', falling back to 'trakt'")
+            metadata_provider = 'trakt'
+        self.metadata_provider = metadata_provider
+        self.tvdb_api_key = str(config.get('tvdb_api_key', '') or '').strip() or tvdb_metadata.DEFAULT_API_KEY
+        self.use_tvmaze = bool(self.tv_status_config.get('use_tvmaze', True))
+        self.needs_trakt_auth = self.next_airing_provider == 'trakt'
+        self.trakt_metadata_degraded = False
+        self._last_trakt_status = None
 
         font_path = self.tv_status_config.get('font_path')
         if not font_path or not os.path.exists(font_path):
@@ -104,7 +186,14 @@ class TVStatusTracker:
 
         self.token_file = os.path.join(self.data_dir, "trakt_token.json")
 
-        self.overlay_style = self.overlay_config.get('overlay_style', 'background_color')
+        self.overlay_style = str(self.overlay_config.get('overlay_style', 'background_color')).strip().lower()
+        if self.overlay_style not in OVERLAY_STYLES:
+            console.print(
+                f"[yellow]Warning: unknown overlay_style '{self.overlay_style}', "
+                f"falling back to 'background_color'. Valid values: {', '.join(sorted(OVERLAY_STYLES))}[/yellow]"
+            )
+            logging.warning(f"Unknown overlay_style '{self.overlay_style}', falling back to 'background_color'")
+            self.overlay_style = 'background_color'
         self.apply_gradient_background = self.overlay_config.get('apply_gradient_background', False)
 
 
@@ -149,7 +238,15 @@ class TVStatusTracker:
             'Content-Type': 'application/json',
             'trakt-api-version': '2',
             'Authorization': f'Bearer {access_token}',
-            'trakt-api-key': self.trakt_config['client_id']
+            'trakt-api-key': self.trakt_config.get('client_id', '')
+        }
+
+    def get_public_trakt_headers(self):
+        """Get Trakt API headers for public endpoints, which need no user token."""
+        return {
+            'Content-Type': 'application/json',
+            'trakt-api-version': '2',
+            'trakt-api-key': self.trakt_config.get('client_id', '')
         }
 
     def get_user_slug(self, headers):
@@ -231,8 +328,9 @@ class TVStatusTracker:
                                 time.sleep(retry_after)
                                 continue 
                             
+                            self._last_trakt_status = response.status_code
                             logging.error(f"API error (HTTP {response.status_code}) for {url}: {response.text}")
-                            return None 
+                            return None
 
                         except requests.exceptions.Timeout as e:
                             logging.warning(f"Timeout connecting to {url} (attempt {attempt+1}/{max_retries}): {e}")
@@ -253,18 +351,48 @@ class TVStatusTracker:
                     logging.error(f"Failed after {max_retries} attempts for URL: {url} (exhausted all retries).")
                     return None
 
-                search_api_url = f'https://api.trakt.tv/search/tmdb/{tmdb_id}?type=show'
-                search_response = make_trakt_api_call(search_api_url)
-            
-                if search_response and search_response.json():
-                    trakt_id = search_response.json()[0]['show']['ids']['trakt']
-                
-                    status_url = f'https://api.trakt.tv/shows/{trakt_id}?extended=full'
-                    status_response = make_trakt_api_call(status_url)
-                
-                    if status_response:
-                        status_data = status_response.json()
-                        status = status_data.get('status', '').lower()
+                if self.metadata_provider == 'tvdb':
+                    record = tmdb_metadata.get_show_metadata(
+                        tmdb_id, self.tmdb_api_key, use_tvmaze=False
+                    )
+                    self._apply_tvdb_air_details(record, tmdb_id)
+                    if self.use_tvmaze and tmdb_metadata.apply_tvmaze_airstamp(
+                        record, tmdb_id, self.tmdb_api_key
+                    ):
+                        logging.debug(f"TVmaze supplied the air time for TMDB {tmdb_id}")
+                    trakt_id = None
+                elif self.metadata_provider == 'tmdb' or self.trakt_metadata_degraded:
+                    record = tmdb_metadata.get_show_metadata(
+                        tmdb_id, self.tmdb_api_key, use_tvmaze=self.use_tvmaze
+                    )
+                    trakt_id = None
+                else:
+                    self._last_trakt_status = None
+                    record, trakt_id = self._fetch_trakt_metadata(tmdb_id, make_trakt_api_call)
+
+                    if record is None and self._last_trakt_status in TRAKT_ACCESS_DENIED_STATUSES:
+                        if self.tmdb_api_key:
+                            self.trakt_metadata_degraded = True
+                            logging.warning(
+                                f"Trakt returned HTTP {self._last_trakt_status} for metadata; "
+                                "falling back to TMDB for the rest of this run"
+                            )
+                            console.print(
+                                f"[yellow]Trakt denied metadata access (HTTP {self._last_trakt_status}). "
+                                "Falling back to TMDB for this run.[/yellow]"
+                            )
+                            record = tmdb_metadata.get_show_metadata(
+                                tmdb_id, self.tmdb_api_key, use_tvmaze=self.use_tvmaze
+                            )
+                            trakt_id = None
+                        else:
+                            logging.error(
+                                f"Trakt returned HTTP {self._last_trakt_status} and no tmdb_api_key "
+                                "is set to fall back to"
+                            )
+
+                if record:
+                        status = record['status']
                         text_content = 'UNKNOWN'
                         back_color = self.colors.get(status.upper(), '#FFFFFF')
 
@@ -278,26 +406,12 @@ class TVStatusTracker:
                             text_content = self.labels['cancelled']
                             back_color = self.colors['CANCELLED']
                             status_type = 'CANCELLED'
-                        elif status == 'returning series':
-                            next_episode_url = f'https://api.trakt.tv/shows/{trakt_id}/next_episode?extended=full'
-                            next_episode_response = make_trakt_api_call(next_episode_url)
+                        elif status == 'returning':
+                            first_aired = record.get('first_aired')
+                            episode_type = record.get('episode_type', 'standard')
 
-                            if next_episode_response and next_episode_response.json():
-                                episode_data = next_episode_response.json()
-                                first_aired = episode_data.get('first_aired')
-                                episode_type = episode_data.get('episode_type', '').lower()
-
-                                if first_aired:
-                                    utc_time = datetime.strptime(first_aired, '%Y-%m-%dT%H:%M:%S.000Z')
-                                    local_time = utc_time.replace(tzinfo=pytz.utc).astimezone(pytz.timezone(self.timezone))
-
-                                    user_preference = self.config.get('date_format', 'DD/MM').upper()
-                                    if user_preference == 'MM/DD':
-                                        strftime_pattern = '%m/%d'
-                                    else:
-                                        strftime_pattern = '%d/%m'
-
-                                    date_str = local_time.strftime(strftime_pattern)
+                            if first_aired:
+                                    date_str = self._format_air_date(first_aired, record.get('date_only', False))
 
                                     if episode_type == 'season_finale':
                                         text_content = f"{self.labels['season_finale']} {date_str}"
@@ -320,11 +434,22 @@ class TVStatusTracker:
                                         back_color = self.colors['AIRING']
                                         status_type = 'AIRING'
 
+                                    try:
+                                        tmdb_id_value = int(tmdb_id)
+                                    except (TypeError, ValueError):
+                                        tmdb_id_value = None
+
                                     self.airing_shows.append({
                                         'trakt_id': trakt_id,
+                                        'tmdb_id': tmdb_id_value,
                                         'title': show.title,
+                                        'year': show.year,
                                         'first_aired': first_aired,
-                                        'episode_type': episode_type
+                                        'date_only': record.get('date_only', False),
+                                        'episode_type': episode_type,
+                                        'status': status_type,
+                                        'date': date_str,
+                                        'text': text_content
                                     })
                             else:
                                 text_content = self.labels['returning']
@@ -341,6 +466,77 @@ class TVStatusTracker:
 
         logging.debug(f"No status information found for: {show.title}")
         return None
+
+    def _apply_tvdb_air_details(self, record, tmdb_id):
+        """Upgrade a date-only TMDB record with TheTVDB's air instant and finale type."""
+        if not record or not record.get('first_aired') or not record.get('date_only'):
+            return
+
+        timestamp, episode_type = tvdb_metadata.get_air_details(
+            tmdb_id, self.tvdb_api_key, self.tmdb_api_key
+        )
+
+        if timestamp:
+            record['first_aired'] = timestamp
+            record['date_only'] = False
+        else:
+            logging.debug(f"TheTVDB had no air time for TMDB {tmdb_id}, keeping date-only value")
+
+        if episode_type:
+            record['episode_type'] = episode_type
+
+    def _fetch_trakt_metadata(self, tmdb_id, make_trakt_api_call):
+        """Resolve status and next airing episode from Trakt."""
+        search_response = make_trakt_api_call(f'https://api.trakt.tv/search/tmdb/{tmdb_id}?type=show')
+        if not search_response or not search_response.json():
+            return None, None
+
+        trakt_id = search_response.json()[0]['show']['ids']['trakt']
+        status_response = make_trakt_api_call(f'https://api.trakt.tv/shows/{trakt_id}?extended=full')
+        if not status_response:
+            return None, trakt_id
+
+        raw_status = status_response.json().get('status', '').lower()
+        if raw_status == 'ended':
+            status = 'ended'
+        elif raw_status == 'canceled':
+            status = 'canceled'
+        elif raw_status == 'returning series':
+            status = 'returning'
+        else:
+            status = raw_status
+
+        record = {
+            'status': status,
+            'first_aired': None,
+            'date_only': False,
+            'episode_type': 'standard'
+        }
+
+        if status != 'returning':
+            return record, trakt_id
+
+        next_response = make_trakt_api_call(
+            f'https://api.trakt.tv/shows/{trakt_id}/next_episode?extended=full'
+        )
+        if next_response and next_response.json():
+            episode_data = next_response.json()
+            record['first_aired'] = episode_data.get('first_aired')
+            record['episode_type'] = episode_data.get('episode_type', '').lower() or 'standard'
+
+        return record, trakt_id
+
+    def _format_air_date(self, first_aired, date_only):
+        """Format an air date for display, converting only real timestamps."""
+        strftime_pattern = '%m/%d' if self.config.get('date_format', 'DD/MM').upper() == 'MM/DD' else '%d/%m'
+
+        if date_only:
+            return _parse_air_date(first_aired).strftime(strftime_pattern)
+
+        parsed = _parse_air_date(first_aired)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=pytz.utc)
+        return parsed.astimezone(pytz.timezone(self.timezone)).strftime(strftime_pattern)
 
     def sanitize_title_for_search(self, title):
         safe_title = title  
@@ -420,10 +616,20 @@ class TVStatusTracker:
 
     def create_yaml_collections(self):
         """Create YAML collection files for libraries."""
-        yaml_template = """
+        trakt_template = """
 collections:
   Next Airing {library_name}:
     trakt_list: https://trakt.tv/users/{trakt_username}/lists/next-airing?sort=rank,asc
+    file_poster: 'config/assets/Next Airing/poster.jpg'
+    collection_order: custom
+    visible_home: true
+    visible_shared: true
+    sync_mode: sync
+"""
+        text_file_template = """
+collections:
+  Next Airing {library_name}:
+    text_file: {text_file_path}
     file_poster: 'config/assets/Next Airing/poster.jpg'
     collection_order: custom
     visible_home: true
@@ -434,25 +640,134 @@ collections:
             yaml_filename = f"{library_name.lower().replace(' ', '-')}-next-airing.yml"
             yaml_filepath = os.path.join(self.collections_dir, yaml_filename)
 
-            if not os.path.exists(yaml_filepath):
-                console.print(f"[blue]Creating YAML collections file for {library_name}[/blue]")
-                try:
-                    with open(yaml_filepath, 'w') as file:
-                        file_content = yaml_template.format(
-                            library_name=library_name,
-                            trakt_username=self.trakt_config['username']
-                        )
-                        file.write(file_content)
-                    console.print(f"[green]File created: {yaml_filepath}[/green]")
-                except Exception as e:
-                    logging.error(f"Error creating collection file for {library_name}: {str(e)}")
-                    console.print(f"[red]Error creating collection file: {str(e)}[/red]")
+            if self.next_airing_provider == 'text_file':
+                file_content = text_file_template.format(
+                    library_name=library_name,
+                    text_file_path=self.next_airing_text_file_ref
+                )
+                expected_builder = 'text_file:'
+                other_builder = 'trakt_list:'
             else:
-                console.print(f"[dim]YAML collections file for {library_name} already exists[/dim]")
+                file_content = trakt_template.format(
+                    library_name=library_name,
+                    trakt_username=self.trakt_config.get('username', '')
+                )
+                expected_builder = 'trakt_list:'
+                other_builder = 'text_file:'
+
+            if os.path.exists(yaml_filepath):
+                try:
+                    with open(yaml_filepath, 'r') as file:
+                        existing_content = file.read()
+                except Exception as e:
+                    logging.error(f"Error reading collection file for {library_name}: {str(e)}")
+                    console.print(f"[red]Error reading collection file for {library_name}: {str(e)}[/red]")
+                    continue
+
+                if expected_builder in existing_content:
+                    console.print(f"[dim]YAML collections file for {library_name} already exists[/dim]")
+                    continue
+
+                if other_builder not in existing_content:
+                    logging.warning(f"Unrecognized builder in {yaml_filepath}, leaving it untouched")
+                    console.print(f"[yellow]Collection file for {library_name} uses an unrecognized builder, leaving it untouched[/yellow]")
+                    continue
+
+                try:
+                    shutil.copy2(yaml_filepath, f"{yaml_filepath}.bak")
+                    console.print(f"[yellow]Next Airing provider changed, backed up {yaml_filename} to {yaml_filename}.bak[/yellow]")
+                    logging.info(f"Backed up {yaml_filepath} before switching builder to {expected_builder}")
+                except Exception as e:
+                    logging.error(f"Error backing up collection file for {library_name}: {str(e)}")
+                    console.print(f"[red]Error backing up collection file for {library_name}: {str(e)}[/red]")
+                    continue
+            else:
+                console.print(f"[blue]Creating YAML collections file for {library_name}[/blue]")
+
+            try:
+                with open(yaml_filepath, 'w') as file:
+                    file.write(file_content)
+                console.print(f"[green]File created: {yaml_filepath}[/green]")
+            except Exception as e:
+                logging.error(f"Error creating collection file for {library_name}: {str(e)}")
+                console.print(f"[red]Error creating collection file: {str(e)}[/red]")
 
     def sort_airing_shows_by_date(self):
         """Sort airing shows by air date."""
-        return sorted(self.airing_shows, key=lambda x: datetime.strptime(x['first_aired'], '%Y-%m-%dT%H:%M:%S.000Z'))
+        return sorted(
+            self.airing_shows,
+            key=lambda x: (
+                _parse_air_date(x['first_aired']).replace(tzinfo=None),
+                str(x.get('title', '')).lower()
+            )
+        )
+
+    def write_next_airing_json(self, airing_shows):
+        """Write the ordered Next Airing list consumed by the web dashboard."""
+        output_path = os.path.join(self.data_dir, "next_airing.json")
+        temp_path = f"{output_path}.tmp"
+
+        payload = []
+        for rank, show in enumerate(airing_shows, 1):
+            payload.append({
+                'rank': rank,
+                'tmdb_id': show.get('tmdb_id'),
+                'trakt_id': show.get('trakt_id'),
+                'title': show.get('title', ''),
+                'year': show.get('year'),
+                'status': show.get('status', 'UNKNOWN'),
+                'date': show.get('date', ''),
+                'text': show.get('text', ''),
+                'first_aired': show.get('first_aired', ''),
+                'date_only': show.get('date_only', False)
+            })
+
+        try:
+            with open(temp_path, 'w') as file:
+                json.dump(payload, file, indent=2)
+            os.replace(temp_path, output_path)
+            logging.info(f"Wrote Next Airing data for {len(payload)} shows: {output_path}")
+        except Exception as e:
+            logging.error(f"Error writing Next Airing JSON: {str(e)}")
+            console.print(f"[red]Failed to write Next Airing data: {str(e)}[/red]")
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+    def write_next_airing_text_file(self, airing_shows):
+        """Write the ordered ID file consumed by the Kometa text_file builder."""
+        lines = []
+        missing_ids = []
+        for show in airing_shows:
+            tmdb_id = show.get('tmdb_id')
+            if tmdb_id:
+                lines.append(f"tmdb:{tmdb_id}")
+            else:
+                missing_ids.append(show.get('title', 'Unknown'))
+
+        if missing_ids:
+            logging.warning(f"Skipped {len(missing_ids)} show(s) without a TMDB ID: {', '.join(missing_ids)}")
+            console.print(f"[yellow]Skipped {len(missing_ids)} show(s) without a TMDB ID[/yellow]")
+
+        temp_path = f"{self.next_airing_text_file}.tmp"
+        try:
+            parent_dir = os.path.dirname(self.next_airing_text_file)
+            if parent_dir:
+                os.makedirs(parent_dir, exist_ok=True)
+            with open(temp_path, 'w') as file:
+                for line in lines:
+                    file.write(f"{line}\n")
+            os.replace(temp_path, self.next_airing_text_file)
+            logging.info(f"Wrote Next Airing text file with {len(lines)} entries: {self.next_airing_text_file}")
+            console.print(f"[green]Next Airing text file written with {len(lines)} shows: {self.next_airing_text_file}[/green]")
+        except Exception as e:
+            logging.error(f"Error writing Next Airing text file: {str(e)}")
+            console.print(f"[red]Failed to write Next Airing text file: {str(e)}[/red]")
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
     def fetch_current_trakt_list_shows(self, list_slug, headers):
         """Fetch current shows in a Trakt list."""
@@ -519,12 +834,56 @@ collections:
             logging.error(f"Collections directory does not exist: {self.collections_dir}")
             return False
 
-        access_token = self.get_trakt_token()
-        if not access_token:
-            console.print("[red]Failed to get Trakt token[/red]")
+        if self.next_airing_provider == 'text_file':
+            supported, kometa_version = _kometa_supports_text_file(self.collections_dir)
+            if not supported:
+                console.print(
+                    f"[yellow]Warning: Kometa {kometa_version} does not support the text_file builder "
+                    f"(needs {'.'.join(str(p) for p in TEXT_FILE_MIN_KOMETA)}+). The Next Airing collection "
+                    "will fail to load. Upgrade Kometa or set next_airing.provider: trakt[/yellow]"
+                )
+                logging.warning(
+                    f"Kometa {kometa_version} predates the text_file builder "
+                    f"({'.'.join(str(p) for p in TEXT_FILE_MIN_KOMETA)}+); Next Airing collection will not load"
+                )
+
+        needs_trakt = self.needs_trakt_auth or self.metadata_provider == 'trakt'
+        if needs_trakt and not self.trakt_config.get('client_id'):
+            console.print(
+                "[red]Error: Trakt is required here but no trakt.client_id is configured. "
+                "Set metadata_provider to 'tvdb' and next_airing.provider to 'text_file' "
+                "to run without Trakt.[/red]"
+            )
+            logging.error("Trakt is required by the current providers but trakt.client_id is missing")
             return False
 
-        headers = self.get_trakt_headers(access_token)
+        if self.metadata_provider in ('tmdb', 'tvdb') and not self.tmdb_api_key:
+            console.print(f"[red]Error: metadata_provider is '{self.metadata_provider}' but tmdb_api_key is not set[/red]")
+            logging.error(f"metadata_provider is '{self.metadata_provider}' but tmdb_api_key is not configured")
+            return False
+
+        if self.metadata_provider == 'tvdb':
+            if not self.tvdb_api_key and not tvdb_metadata.PROXY_URL:
+                console.print("[red]Error: metadata_provider is 'tvdb' but no tvdb_api_key is set and no proxy is available[/red]")
+                logging.error("metadata_provider is 'tvdb' but no key or proxy is available")
+                return False
+            if self.tvdb_api_key and not tvdb_metadata.verify_api_key(self.tvdb_api_key):
+                console.print("[red]Error: TheTVDB rejected tvdb_api_key[/red]")
+                logging.error("TheTVDB rejected the configured tvdb_api_key")
+                return False
+
+        headers = None
+        if self.needs_trakt_auth:
+            access_token = self.get_trakt_token()
+            if not access_token:
+                console.print("[red]Failed to get Trakt token[/red]")
+                return False
+            headers = self.get_trakt_headers(access_token)
+        elif self.metadata_provider == 'trakt':
+            headers = self.get_public_trakt_headers()
+            console.print("[dim]Using Trakt public API for metadata (client_id only, no login required)[/dim]")
+        else:
+            console.print(f"[dim]Running without Trakt (metadata: {self.metadata_provider}, next airing: text_file)[/dim]")
 
         changes = {
             'AIRING': [],
@@ -670,7 +1029,7 @@ collections:
                                     'height': self.overlay_config.get('back_height', 90),
                                     'horizontal_align': self.overlay_config.get('horizontal_align', "center"),
                                     'horizontal_offset': self.overlay_config.get('horizontal_offset', 0),
-                                    'name': f'status_gradient_for_{formatted_title}',
+                                    'name': f"status_gradient_for_{formatted_title.replace('|', '_')}",
                                     'order': 10,
                                     'vertical_align': self.overlay_config.get('vertical_align', "top"),
                                     'vertical_offset': self.overlay_config.get('vertical_offset', 0),
@@ -736,15 +1095,20 @@ collections:
 
         self.create_yaml_collections()
 
-        list_name = "Next Airing"
-        list_slug = self.get_or_create_trakt_list(list_name, headers)
+        sorted_airing_shows = self.sort_airing_shows_by_date()
+        self.write_next_airing_json(sorted_airing_shows)
 
-        if list_slug and self.airing_shows:
-            sorted_airing_shows = self.sort_airing_shows_by_date()
-            self.update_trakt_list(list_slug, sorted_airing_shows, headers)
-            console.print(f"[green]Updated '{list_name}' Trakt list with {len(sorted_airing_shows)} airing shows[/green]")
-        elif not self.airing_shows:
-            console.print("[yellow]No airing shows found to add to Trakt list[/yellow]")
+        if self.next_airing_provider == 'text_file':
+            self.write_next_airing_text_file(sorted_airing_shows)
+        else:
+            list_name = "Next Airing"
+            list_slug = self.get_or_create_trakt_list(list_name, headers)
+
+            if list_slug and sorted_airing_shows:
+                self.update_trakt_list(list_slug, sorted_airing_shows, headers)
+                console.print(f"[green]Updated '{list_name}' Trakt list with {len(sorted_airing_shows)} airing shows[/green]")
+            elif not sorted_airing_shows:
+                console.print("[yellow]No airing shows found to add to Trakt list[/yellow]")
 
         try:
             with open(status_cache_file, 'w') as f:

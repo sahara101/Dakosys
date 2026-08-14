@@ -10,4 +10,11 @@ build/
 dist/
 *.egg-info/
 
+web/node_modules/
+web/.next/
+web/out/
+web/tsconfig.tsbuildinfo
+
+proxy/
+
 CHANGELOG.md

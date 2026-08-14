@@ -32,12 +32,14 @@ interface WizardState {
   movie_libs: string[];
   anime_episode_type: ServiceSchedule;
   tv_status_tracker: ServiceSchedule;
+  tv_metadata_provider: "tvdb" | "trakt";
   size_overlay: ServiceSchedule & { movie_libraries: string[]; tv_libraries: string[]; anime_libraries: string[] };
   kometa_yaml_output: string;
   kometa_collections: string;
   kometa_font_dir: string;
   kometa_asset_dir: string;
   tmdb_api_key: string;
+  tvdb_api_key: string;
   trakt_client_id: string;
   trakt_client_secret: string;
   trakt_username: string;
@@ -243,6 +245,7 @@ export default function SetupPage() {
     movie_libs: [],
     anime_episode_type: defaultSchedule({ enabled: false, schedule_times: ["03:00"] }),
     tv_status_tracker: defaultSchedule({ enabled: false, schedule_times: ["04:00"] }),
+    tv_metadata_provider: "tvdb",
     size_overlay: {
       ...defaultSchedule({ enabled: false, schedule_times: ["03:30"] }),
       movie_libraries: [],
@@ -254,6 +257,7 @@ export default function SetupPage() {
     kometa_font_dir: "config/fonts",
     kometa_asset_dir: "config/assets",
     tmdb_api_key: "",
+    tvdb_api_key: "",
     trakt_client_id: "",
     trakt_client_secret: "",
     trakt_username: "",
@@ -377,6 +381,7 @@ export default function SetupPage() {
           },
           tv_status_tracker: {
             enabled: w.tv_status_tracker.enabled,
+            metadata_provider: w.tv_metadata_provider,
             libraries: w.tv_status_tracker.libraries ?? [],
             schedule_type: w.tv_status_tracker.schedule_type,
             schedule_times: w.tv_status_tracker.schedule_times,
@@ -416,6 +421,7 @@ export default function SetupPage() {
         },
         list_privacy: w.list_privacy,
         tmdb_api_key: w.tmdb_api_key,
+        tvdb_api_key: w.tvdb_api_key,
       };
       await api.runSetup(payload);
       router.replace("/dashboard");
@@ -431,6 +437,10 @@ export default function SetupPage() {
     "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Amsterdam",
     "Asia/Tokyo", "Asia/Seoul", "Asia/Singapore", "Australia/Sydney",
   ];
+
+  const tvUsesTrakt = w.tv_status_tracker.enabled && w.tv_metadata_provider === "trakt";
+  const tvUsesTvdb = w.tv_status_tracker.enabled && w.tv_metadata_provider === "tvdb";
+  const needsTrakt = w.anime_episode_type.enabled || tvUsesTrakt;
 
   const stepContent = () => {
     switch (step) {
@@ -637,7 +647,10 @@ export default function SetupPage() {
           <div className="space-y-6">
             <div>
               <h2 className="text-xl font-semibold text-white mb-1">Services</h2>
-              <p className="text-zinc-400 text-sm">Enable the services you want to use and configure their schedules.</p>
+              <p className="text-zinc-400 text-sm">
+                Enable the services you want to use and configure their schedules. Each service runs
+                only against the libraries you select for it — click a library name to toggle it.
+              </p>
             </div>
 
             {/* Anime Episode Type */}
@@ -649,14 +662,22 @@ export default function SetupPage() {
                 </div>
                 <Switch
                   isSelected={w.anime_episode_type.enabled}
-                  onValueChange={(v) => update({ anime_episode_type: { ...w.anime_episode_type, enabled: v } })}
+                  onValueChange={(v) =>
+                    update({
+                      anime_episode_type: {
+                        ...w.anime_episode_type,
+                        enabled: v,
+                        libraries: v && w.anime_episode_type.libraries === undefined ? w.anime_libs : w.anime_episode_type.libraries,
+                      },
+                    })
+                  }
                   color="secondary"
                 />
               </div>
               {w.anime_episode_type.enabled && (
                 <>
                   <div>
-                    <p className="text-xs text-zinc-500 mb-1">Anime libraries to scan</p>
+                    <p className="text-xs text-zinc-400 mb-1">Select the anime libraries to scan</p>
                     <div className="flex flex-wrap gap-1">
                       {w.anime_libs.map((lib) => (
                         <button
@@ -676,6 +697,9 @@ export default function SetupPage() {
                       ))}
                       {w.anime_libs.length === 0 && <p className="text-zinc-600 text-xs">Add anime libraries in step 3</p>}
                     </div>
+                    {w.anime_libs.length > 0 && (w.anime_episode_type.libraries ?? []).length === 0 && (
+                      <p className="text-amber-400 text-xs mt-1">No libraries selected — this service will do nothing.</p>
+                    )}
                   </div>
                   <ScheduleConfig
                     value={w.anime_episode_type}
@@ -694,14 +718,22 @@ export default function SetupPage() {
                 </div>
                 <Switch
                   isSelected={w.tv_status_tracker.enabled}
-                  onValueChange={(v) => update({ tv_status_tracker: { ...w.tv_status_tracker, enabled: v } })}
+                  onValueChange={(v) =>
+                    update({
+                      tv_status_tracker: {
+                        ...w.tv_status_tracker,
+                        enabled: v,
+                        libraries: v && w.tv_status_tracker.libraries === undefined ? [...w.anime_libs, ...w.tv_libs] : w.tv_status_tracker.libraries,
+                      },
+                    })
+                  }
                   color="secondary"
                 />
               </div>
               {w.tv_status_tracker.enabled && (
                 <>
                   <div>
-                    <p className="text-xs text-zinc-500 mb-1">Libraries to scan</p>
+                    <p className="text-xs text-zinc-400 mb-1">Select the libraries to scan</p>
                     <div className="flex flex-wrap gap-1">
                       {[...w.anime_libs, ...w.tv_libs].map((lib) => (
                         <button
@@ -719,7 +751,11 @@ export default function SetupPage() {
                           {lib}
                         </button>
                       ))}
+                      {[...w.anime_libs, ...w.tv_libs].length === 0 && <p className="text-zinc-600 text-xs">Add TV or anime libraries in step 3</p>}
                     </div>
+                    {[...w.anime_libs, ...w.tv_libs].length > 0 && (w.tv_status_tracker.libraries ?? []).length === 0 && (
+                      <p className="text-amber-400 text-xs mt-1">No libraries selected — this service will do nothing.</p>
+                    )}
                   </div>
                   <ScheduleConfig
                     value={w.tv_status_tracker}
@@ -738,13 +774,28 @@ export default function SetupPage() {
                 </div>
                 <Switch
                   isSelected={w.size_overlay.enabled}
-                  onValueChange={(v) => update({ size_overlay: { ...w.size_overlay, enabled: v } })}
+                  onValueChange={(v) => {
+                    const untouched =
+                      w.size_overlay.movie_libraries.length === 0 &&
+                      w.size_overlay.tv_libraries.length === 0 &&
+                      w.size_overlay.anime_libraries.length === 0;
+                    update({
+                      size_overlay: {
+                        ...w.size_overlay,
+                        enabled: v,
+                        movie_libraries: v && untouched ? w.movie_libs : w.size_overlay.movie_libraries,
+                        tv_libraries: v && untouched ? w.tv_libs : w.size_overlay.tv_libraries,
+                        anime_libraries: v && untouched ? w.anime_libs : w.size_overlay.anime_libraries,
+                      },
+                    });
+                  }}
                   color="secondary"
                 />
               </div>
               {w.size_overlay.enabled && (
                 <>
                   <div className="space-y-2">
+                    <p className="text-xs text-zinc-400">Select the libraries to overlay</p>
                     {w.movie_libs.length > 0 && (
                       <div>
                         <p className="text-xs text-zinc-500 mb-1">Movie libraries</p>
@@ -814,6 +865,11 @@ export default function SetupPage() {
                         </div>
                       </div>
                     )}
+                    {w.size_overlay.movie_libraries.length === 0 &&
+                      w.size_overlay.tv_libraries.length === 0 &&
+                      w.size_overlay.anime_libraries.length === 0 && (
+                        <p className="text-amber-400 text-xs">No libraries selected — this service will do nothing.</p>
+                      )}
                   </div>
                   <ScheduleConfig
                     value={w.size_overlay}
@@ -864,32 +920,124 @@ export default function SetupPage() {
       case 6:
         return (
           <div className="space-y-6">
-            {/* TMDB */}
             <div>
               <h2 className="text-xl font-semibold text-white mb-1">API Keys</h2>
             </div>
-            <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 space-y-3">
-              <div>
-                <p className="text-white text-sm font-medium">TMDB API Key</p>
-                <p className="text-zinc-500 text-xs mb-2">
-                  Used for poster images on the Next Airing page. Get one free at{" "}
-                  <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" className="text-violet-400 hover:text-violet-300">
-                    themoviedb.org →
-                  </a>
+
+            {!w.tv_status_tracker.enabled && !w.anime_episode_type.enabled && (
+              <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+                <p className="text-zinc-400 text-sm">
+                  Nothing to configure here. Only the TV Status Tracker and Anime Episode Type
+                  services use external APIs, and you have both disabled.
                 </p>
-                <Input
-                  placeholder="Optional — leave blank to skip poster images"
-                  value={w.tmdb_api_key}
-                  onChange={(e) => update({ tmdb_api_key: e.target.value })}
-                  classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700" }}
-                />
               </div>
-            </div>
+            )}
+
+            {/* TV Status metadata source */}
+            {w.tv_status_tracker.enabled && (
+              <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 space-y-3">
+                <div>
+                  <p className="text-white text-sm font-medium">TV Status Tracker metadata source</p>
+                  <p className="text-zinc-500 text-xs">Where show status and upcoming episode dates come from.</p>
+                </div>
+                <div className="flex gap-3">
+                  {([
+                    { k: "tvdb", t: "TheTVDB", d: "Recommended" },
+                    { k: "trakt", t: "Trakt", d: "Needs a Trakt API app" },
+                  ] as const).map((o) => (
+                    <button
+                      key={o.k}
+                      onClick={() => update({ tv_metadata_provider: o.k })}
+                      className={`flex-1 px-4 py-2 rounded-lg border text-sm text-left transition-all ${
+                        w.tv_metadata_provider === o.k
+                          ? "bg-violet-600 border-violet-500 text-white"
+                          : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500"
+                      }`}
+                    >
+                      <span className="block font-medium">{o.t}</span>
+                      <span className="block text-xs opacity-70">{o.d}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-zinc-500 text-xs">
+                  {tvUsesTvdb
+                    ? "TheTVDB provides exact per-timezone air times through a shared proxy — nothing to register. It needs a free TMDB key below for show status and to tell a cancelled show from an ended one."
+                    : "Trakt supplies status and air times, but creating a Trakt API application requires Trakt VIP. Enter the credentials further down. A TMDB key stays optional and is used only for poster images."}
+                </p>
+              </div>
+            )}
+
+            {/* TMDB */}
+            {w.tv_status_tracker.enabled && (
+              <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 space-y-3">
+                <div>
+                  <p className="text-white text-sm font-medium">
+                    TMDB API Key{" "}
+                    {tvUsesTvdb ? <span className="text-red-400">(required)</span> : <span className="text-zinc-500">(optional)</span>}
+                  </p>
+                  <p className="text-zinc-500 text-xs mb-2">
+                    {tvUsesTvdb
+                      ? "Supplies show status, upcoming episodes and poster images, and is what distinguishes a cancelled show from an ended one."
+                      : "Used only for poster images on the Next Airing page."}{" "}
+                    Get one free at{" "}
+                    <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" className="text-violet-400 hover:text-violet-300">
+                      themoviedb.org →
+                    </a>
+                  </p>
+                  <Input
+                    placeholder={tvUsesTvdb ? "Required with the TheTVDB metadata source" : "Optional — leave blank to skip poster images"}
+                    value={w.tmdb_api_key}
+                    onChange={(e) => update({ tmdb_api_key: e.target.value })}
+                    classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700" }}
+                  />
+                  {tvUsesTvdb && !w.tmdb_api_key && (
+                    <p className="text-amber-400 text-xs mt-2">
+                      Without a TMDB key the TV Status Tracker will not run.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {tvUsesTvdb && (
+              <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 space-y-3">
+                <div>
+                  <p className="text-white text-sm font-medium">TheTVDB API Key <span className="text-zinc-500">(optional)</span></p>
+                  <p className="text-zinc-500 text-xs mb-2">
+                    DAKOSYS reaches TheTVDB through a shared proxy by default, so there is nothing to
+                    register. Enter your own v4 project key here to skip the proxy.
+                  </p>
+                  <Input
+                    placeholder="Leave blank to use the DAKOSYS proxy"
+                    value={w.tvdb_api_key}
+                    onChange={(e) => update({ tvdb_api_key: e.target.value })}
+                    classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700" }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Trakt */}
+            {w.tv_status_tracker.enabled && !needsTrakt && (
+              <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+                <p className="text-white text-sm font-medium mb-1">Trakt Configuration</p>
+                <p className="text-zinc-500 text-xs">
+                  Not needed — the Anime Episode Type service is disabled and the TV Status Tracker
+                  is set to TheTVDB, so nothing here uses a Trakt account.
+                </p>
+              </div>
+            )}
+
+            {needsTrakt && (
+            <>
             <div>
               <h2 className="text-xl font-semibold text-white mb-1">Trakt Configuration</h2>
               <p className="text-zinc-400 text-sm">
+                {w.anime_episode_type.enabled && tvUsesTrakt
+                  ? "Required by the Anime Episode Type service and by your TV Status Tracker metadata choice."
+                  : w.anime_episode_type.enabled
+                  ? "Required by the Anime Episode Type service."
+                  : "Required by your TV Status Tracker metadata choice."}{" "}
                 Create an API application at{" "}
                 <a href="https://trakt.tv/oauth/applications" target="_blank" rel="noopener noreferrer" className="text-violet-400 hover:text-violet-300">
                   trakt.tv/oauth/applications
@@ -897,10 +1045,13 @@ export default function SetupPage() {
                 then enter your credentials below.
               </p>
               <div className="mt-2 bg-zinc-900 rounded-lg p-3 border border-zinc-800 text-xs text-zinc-400 space-y-1">
-                <p>When creating the Trakt application:</p>
-                <p>• Redirect URI: <code className="text-violet-300">urn:ietf:wg:oauth:2.0:oob</code></p>
-                <p>• Check <span className="text-white">Skip authorization (single user)</span></p>
-                <p>• Enable <span className="text-white">Auto-refresh token</span></p>
+                <p className="text-amber-400">
+                  Creating a Trakt API application requires a Trakt VIP subscription.
+                </p>
+                <p>Trakt&apos;s form asks for a redirect URI — use <code className="text-violet-300">urn:ietf:wg:oauth:2.0:oob</code>.</p>
+                {w.anime_episode_type.enabled && (
+                  <p>If the form offers <span className="text-white">Auto-refresh token</span>, enable it so you are not asked to reauthorize.</p>
+                )}
               </div>
             </div>
 
@@ -911,23 +1062,36 @@ export default function SetupPage() {
                 onChange={(e) => update({ trakt_client_id: e.target.value, trakt_authed: false })}
                 classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700", label: "text-zinc-400" }}
               />
-              <Input
-                label="Client Secret"
-                value={w.trakt_client_secret}
-                onChange={(e) => update({ trakt_client_secret: e.target.value, trakt_authed: false })}
-                type="password"
-                classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700", label: "text-zinc-400" }}
-              />
-              <Input
-                label="Trakt username"
-                value={w.trakt_username}
-                onChange={(e) => update({ trakt_username: e.target.value })}
-                classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700", label: "text-zinc-400" }}
-              />
+              {w.anime_episode_type.enabled && (
+                <>
+                  <Input
+                    label="Client Secret"
+                    value={w.trakt_client_secret}
+                    onChange={(e) => update({ trakt_client_secret: e.target.value, trakt_authed: false })}
+                    type="password"
+                    classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700", label: "text-zinc-400" }}
+                  />
+                  <Input
+                    label="Trakt username"
+                    value={w.trakt_username}
+                    onChange={(e) => update({ trakt_username: e.target.value })}
+                    classNames={{ input: "text-white", inputWrapper: "bg-zinc-800 border-zinc-700", label: "text-zinc-400" }}
+                  />
+                </>
+              )}
             </div>
 
+            {!w.anime_episode_type.enabled && (
+              <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+                <p className="text-zinc-400 text-xs">
+                  The Client ID is all the TV Status Tracker needs — it reads Trakt&apos;s public
+                  endpoints, so there is no authorization step.
+                </p>
+              </div>
+            )}
+
             {/* Device auth */}
-            {!w.trakt_authed && (
+            {w.anime_episode_type.enabled && !w.trakt_authed && (
               <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 space-y-3">
                 <p className="text-sm text-zinc-300 font-medium">Authenticate with Trakt</p>
                 {!traktDeviceInfo ? (
@@ -972,7 +1136,11 @@ export default function SetupPage() {
               </div>
             )}
 
-            <p className="text-zinc-600 text-xs">You can skip authorization and authenticate later by running the container manually.</p>
+            {w.anime_episode_type.enabled && (
+              <p className="text-zinc-600 text-xs">You can skip authorization and authenticate later by running the container manually.</p>
+            )}
+            </>
+            )}
           </div>
         );
 
@@ -981,7 +1149,9 @@ export default function SetupPage() {
           <div className="space-y-6">
             <div>
               <h2 className="text-xl font-semibold text-white mb-1">Notifications & Privacy</h2>
-              <p className="text-zinc-400 text-sm">Optional Discord notifications and Trakt list privacy settings.</p>
+              <p className="text-zinc-400 text-sm">
+                Optional Discord notifications{w.anime_episode_type.enabled ? " and Trakt list privacy settings" : ""}.
+              </p>
             </div>
 
             <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 space-y-4">
@@ -1007,6 +1177,7 @@ export default function SetupPage() {
               )}
             </div>
 
+            {w.anime_episode_type.enabled && (
             <div>
               <p className="text-sm text-zinc-400 mb-2">Default Trakt list privacy</p>
               <div className="flex gap-3">
@@ -1025,6 +1196,7 @@ export default function SetupPage() {
                 ))}
               </div>
             </div>
+            )}
           </div>
         );
 
@@ -1044,14 +1216,51 @@ export default function SetupPage() {
               <ReviewRow label="Anime libraries" value={w.anime_libs.join(", ") || "None"} />
               <ReviewRow label="TV libraries" value={w.tv_libs.join(", ") || "None"} />
               <ReviewRow label="Movie libraries" value={w.movie_libs.join(", ") || "None"} />
-              <ReviewRow label="Anime Episode Type" value={w.anime_episode_type.enabled ? "Enabled" : "Disabled"} />
-              <ReviewRow label="TV Status Tracker" value={w.tv_status_tracker.enabled ? "Enabled" : "Disabled"} />
-              <ReviewRow label="Size Overlay" value={w.size_overlay.enabled ? "Enabled" : "Disabled"} />
-              <ReviewRow label="TMDB API key" value={w.tmdb_api_key ? "Set" : "Not set (posters disabled)"} />
-              <ReviewRow label="Trakt client ID" value={w.trakt_client_id ? "Set" : "Not set"} warn={!w.trakt_client_id} />
-              <ReviewRow label="Trakt auth" value={w.trakt_authed ? "Authorized" : "Not yet authorized"} warn={!w.trakt_authed} />
+              <ReviewRow
+                label="Anime Episode Type"
+                value={w.anime_episode_type.enabled ? ((w.anime_episode_type.libraries ?? []).join(", ") || "Enabled — no libraries selected") : "Disabled"}
+                warn={w.anime_episode_type.enabled && (w.anime_episode_type.libraries ?? []).length === 0}
+              />
+              <ReviewRow
+                label="TV Status Tracker"
+                value={w.tv_status_tracker.enabled ? ((w.tv_status_tracker.libraries ?? []).join(", ") || "Enabled — no libraries selected") : "Disabled"}
+                warn={w.tv_status_tracker.enabled && (w.tv_status_tracker.libraries ?? []).length === 0}
+              />
+              <ReviewRow
+                label="Size Overlay"
+                value={
+                  w.size_overlay.enabled
+                    ? ([...w.size_overlay.movie_libraries, ...w.size_overlay.tv_libraries, ...w.size_overlay.anime_libraries].join(", ") || "Enabled — no libraries selected")
+                    : "Disabled"
+                }
+                warn={
+                  w.size_overlay.enabled &&
+                  w.size_overlay.movie_libraries.length === 0 &&
+                  w.size_overlay.tv_libraries.length === 0 &&
+                  w.size_overlay.anime_libraries.length === 0
+                }
+              />
+              {w.tv_status_tracker.enabled && (
+                <>
+                  <ReviewRow label="TV status metadata" value={tvUsesTvdb ? "TheTVDB" : "Trakt"} />
+                  <ReviewRow
+                    label="TMDB API key"
+                    value={w.tmdb_api_key ? "Set" : tvUsesTvdb ? "Not set (TV Status Tracker will not run)" : "Not set (posters disabled)"}
+                    warn={!w.tmdb_api_key && tvUsesTvdb}
+                  />
+                </>
+              )}
+              {tvUsesTvdb && <ReviewRow label="TheTVDB API key" value={w.tvdb_api_key ? "Set" : "Using DAKOSYS proxy"} />}
+              {needsTrakt && (
+                <>
+                  <ReviewRow label="Trakt client ID" value={w.trakt_client_id ? "Set" : "Not set"} warn={!w.trakt_client_id} />
+                  {w.anime_episode_type.enabled && (
+                    <ReviewRow label="Trakt auth" value={w.trakt_authed ? "Authorized" : "Not yet authorized"} warn={!w.trakt_authed} />
+                  )}
+                </>
+              )}
               <ReviewRow label="Notifications" value={w.notif_enabled ? (w.discord_webhook ? "Discord enabled" : "Enabled (no webhook)") : "Disabled"} />
-              <ReviewRow label="List privacy" value={w.list_privacy} />
+              {w.anime_episode_type.enabled && <ReviewRow label="List privacy" value={w.list_privacy} />}
             </div>
 
             {saveError && (
@@ -1079,7 +1288,7 @@ export default function SetupPage() {
 
   const stepTitles = [
     "Basic Settings", "Plex", "Libraries", "Services",
-    "Kometa", "Trakt", "Notifications", "Review",
+    "Kometa", "API Keys", "Notifications", "Review",
   ];
 
   return (

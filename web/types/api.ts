@@ -172,8 +172,9 @@ export interface TitleMappingsResponse {
 export interface NextAiringShow {
   rank: number;
   title: string;
-  trakt_slug: string;
-  trakt_id: number | null;
+  tmdb_id?: number | null;
+  trakt_slug?: string;
+  trakt_id?: number | null;
   poster_url: string | null;
   status: string;
   date: string;

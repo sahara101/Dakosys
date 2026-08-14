@@ -9,7 +9,7 @@ const SERVICE_DESCRIPTIONS: Record<ServiceName, string> = {
   anime_episode_type:
     "Fetches episode lists from AnimeFillerList, matches them with Trakt.tv episodes, and updates Filler / Canon / Mixed lists. Generates Kometa overlay YAML files.",
   tv_status_tracker:
-    "Scans your Plex libraries, fetches current show status from Trakt, updates Kometa overlay files, and sends Discord notifications for any status changes.",
+    "Scans your Plex libraries, fetches current show status from your configured metadata provider, updates Kometa overlay files, and sends Discord notifications for any status changes.",
   size_overlay:
     "Calculates file sizes for all media in your Plex libraries, generates size overlay YAML files for Kometa, and reports changes since the last run.",
 };

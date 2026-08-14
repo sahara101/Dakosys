@@ -164,7 +164,7 @@ def setup_anime_episode_type(config):
 def setup_tv_status_tracker(config):
     """Setup for TV/Anime Status Tracker service."""
     console.print("\n[bold cyan]TV/Anime Status Tracker[/bold cyan]")
-    console.print("[yellow]This service creates Kometa overlays and Trakt lists for next airing episodes, season finales, etc.[/yellow]")
+    console.print("[yellow]This service creates Kometa overlays and collections for next airing episodes, season finales, etc.[/yellow]")
     console.print("[yellow]It can work with both anime and regular TV shows.[/yellow]")
     
     enable_service = click.confirm("Enable TV/Anime Status Tracker service?",
@@ -713,7 +713,7 @@ def run_setup():
     config['services']['anime_episode_type']['enabled'] = anime_episode_service
 
     console.print("\n[bold cyan]TV/Anime Status Tracker[/bold cyan]")
-    console.print("[yellow]This service creates Kometa overlays and Trakt lists for next airing episodes, season finales, etc.[/yellow]")
+    console.print("[yellow]This service creates Kometa overlays and collections for next airing episodes, season finales, etc.[/yellow]")
     console.print("[yellow]It can work with both anime and regular TV shows.[/yellow]")
     tv_status_service = click.confirm("Enable TV/Anime Status Tracker service?", default=False)
     config['services']['tv_status_tracker']['enabled'] = tv_status_service
@@ -851,28 +851,83 @@ def run_setup():
         # The font_name will default to "Juventus-Fans-Bold.ttf" as per the initial config dictionary.
         # The user can manually edit config.yaml to change services.tv_status_tracker.overlay.font_name.
 
-    console.print("\n[bold]Trakt Configuration[/bold]")
-    console.print("[yellow]You'll need to create a Trakt.tv API application first at: https://trakt.tv/oauth/applications[/yellow]")
-    console.print("\n[bold]When creating your Trakt application:[/bold]")
-    console.print("1. Name: [green]DAKOSYS[/green] (or any name you prefer)")
-    console.print("2. Redirect URI: [bold green]urn:ietf:wg:oauth:2.0:oob[/bold green] (use exactly this value)")
-    console.print("3. JavaScript Origins: [green]Leave blank[/green]")
-    console.print("4. Permissions: Select [green]Auto-refresh token[/green] to avoid manual reauthorization")
-    console.print("5. Check: [green]Skip authorization (single user)[/green]")
-    console.print("\n[yellow]After creating your application, you'll see both a Client ID and Client Secret that you'll need below.[/yellow]")
+    if tv_status_service:
+        console.print("\n[bold]TMDB Configuration[/bold]")
+        console.print("[yellow]The TV Status Tracker needs a free TMDB API key for show status and")
+        console.print("upcoming episodes. Create one at: https://www.themoviedb.org/settings/api[/yellow]")
+        console.print("[dim]TMDB is also what distinguishes a cancelled show from an ended one.[/dim]")
 
-    console.print("\n[bold]Enter your Trakt application details:[/bold]")
-    config['trakt']['client_id'] = click.prompt("Enter your Trakt Client ID (a long string of letters and numbers)")
-    config['trakt']['client_secret'] = click.prompt("Enter your Trakt Client Secret (needed for auto-refresh)")
-    config['trakt']['username'] = click.prompt("Enter your Trakt username")
-    config['trakt']['redirect_uri'] = click.prompt("Enter redirect URI", default="urn:ietf:wg:oauth:2.0:oob")
+        existing_tmdb = str(config.get('tmdb_api_key', '') or '').strip()
+        tmdb_key = click.prompt(
+            "\nEnter your TMDB API key",
+            default=existing_tmdb,
+            show_default=bool(existing_tmdb),
+        ).strip()
+        if tmdb_key:
+            config['tmdb_api_key'] = tmdb_key
+        else:
+            console.print("[yellow]No TMDB key set — the TV Status Tracker will not run until one is[/yellow]")
+            console.print("[yellow]added to config.yaml as tmdb_api_key.[/yellow]")
 
-    console.print("\n[bold]List Settings[/bold]")
-    config['lists']['default_privacy'] = click.prompt(
-        "Default privacy for created lists",
-        type=click.Choice(['private', 'public']),
-        default="private"
-    )
+        console.print("\n[bold]Air Date Accuracy[/bold]")
+        console.print("[yellow]TheTVDB provides exact per-timezone air times. It uses a project API key")
+        console.print("belonging to DAKOSYS, so there is nothing for you to register.[/yellow]")
+
+        console.print("[dim]By default DAKOSYS reaches TheTVDB through a shared proxy, so there is[/dim]")
+        console.print("[dim]nothing to register. If you run your own TheTVDB v4 project key, you can[/dim]")
+        console.print("[dim]use it directly instead and skip the proxy entirely.[/dim]")
+
+        provider = 'tvdb'
+        if click.confirm("\nUse your own TheTVDB API key?", default=False):
+            while True:
+                tvdb_key = click.prompt("Enter your TheTVDB v4 API key").strip()
+                console.print("[dim]Verifying key with TheTVDB...[/dim]")
+                try:
+                    import tvdb_metadata
+                    valid = tvdb_metadata.verify_api_key(tvdb_key)
+                except Exception as e:
+                    console.print(f"[yellow]Could not verify ({e}), saving as entered.[/yellow]")
+                    valid = True
+                if valid:
+                    console.print("[green]TheTVDB accepted the key.[/green]")
+                    config['tvdb_api_key'] = tvdb_key
+                    break
+                console.print("[red]TheTVDB rejected that key.[/red]")
+                if not click.confirm("Try a different key?", default=True):
+                    break
+        else:
+            console.print("[green]Using the DAKOSYS TheTVDB proxy.[/green]")
+
+        config['services']['tv_status_tracker']['metadata_provider'] = provider
+        config['services']['tv_status_tracker'].setdefault('next_airing', {})['provider'] = 'text_file'
+
+    if not anime_episode_service:
+        config.pop('trakt', None)
+        config.pop('lists', None)
+
+    if anime_episode_service:
+        console.print("\n[bold]Trakt Configuration[/bold]")
+        console.print("[yellow]You'll need to create a Trakt.tv API application first at: https://trakt.tv/oauth/applications[/yellow]")
+        console.print("\n[bold]When creating your Trakt application:[/bold]")
+        console.print("1. Name: [green]DAKOSYS[/green] (or any name you prefer)")
+        console.print("2. Redirect URI: [bold green]urn:ietf:wg:oauth:2.0:oob[/bold green] (use exactly this value)")
+        console.print("3. JavaScript Origins: [green]Leave blank[/green]")
+        console.print("4. Permissions: Select [green]Auto-refresh token[/green] to avoid manual reauthorization")
+        console.print("5. Check: [green]Skip authorization (single user)[/green]")
+        console.print("\n[yellow]After creating your application, you'll see both a Client ID and Client Secret that you'll need below.[/yellow]")
+
+        console.print("\n[bold]Enter your Trakt application details:[/bold]")
+        config['trakt']['client_id'] = click.prompt("Enter your Trakt Client ID (a long string of letters and numbers)")
+        config['trakt']['client_secret'] = click.prompt("Enter your Trakt Client Secret (needed for auto-refresh)")
+        config['trakt']['username'] = click.prompt("Enter your Trakt username")
+        config['trakt']['redirect_uri'] = click.prompt("Enter redirect URI", default="urn:ietf:wg:oauth:2.0:oob")
+
+        console.print("\n[bold]List Settings[/bold]")
+        config['lists']['default_privacy'] = click.prompt(
+            "Default privacy for created lists",
+            type=click.Choice(['private', 'public']),
+            default="private"
+        )
 
     console.print("\n[bold]Service Schedules[/bold]")
     console.print("[yellow]Configure when each enabled service will run.[/yellow]")
@@ -1052,14 +1107,17 @@ def run_setup():
             console.print(f"[yellow]Warning: Could not setup assets: {str(e)}[/yellow]")
             console.print("[yellow]You may need to manually copy collection posters and fonts.[/yellow]")
 
-    console.print("\n[bold]Now authenticating with Trakt.tv...[/bold]")
-    import trakt_auth
-    auth_success = trakt_auth.ensure_auth_during_setup(config)
+    if anime_episode_service:
+        console.print("\n[bold]Now authenticating with Trakt.tv...[/bold]")
+        import trakt_auth
+        auth_success = trakt_auth.ensure_auth_during_setup(config)
 
-    if auth_success:
-        console.print("\n[bold green]Setup complete! Authentication successful![/bold green]")
+        if auth_success:
+            console.print("\n[bold green]Setup complete! Authentication successful![/bold green]")
+        else:
+            console.print("\n[bold yellow]Setup complete, but Trakt authentication will be needed when you run commands.[/bold yellow]")
     else:
-        console.print("\n[bold yellow]Setup complete, but Trakt authentication will be needed when you run commands.[/bold yellow]")
+        console.print("\n[bold green]Setup complete![/bold green]")
 
     if os.environ.get('RUNNING_IN_DOCKER') == 'true':
         console.print("\n[bold]Setting up assets and overlay files...[/bold]")

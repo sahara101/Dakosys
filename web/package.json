@@ -10,25 +10,27 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
-    "@nextui-org/react": "^2.4.8",
+    "@nextui-org/react": "^2.6.11",
     "clsx": "^2.1.1",
-    "framer-motion": "^11.3.19",
-    "next": "14.2.35",
-    "react": "^18",
-    "react-dom": "^18",
+    "framer-motion": "^11.18.2",
+    "next": "15.5.23",
+    "react": "^19",
+    "react-dom": "^19",
     "tailwind-merge": "^2.4.0"
   },
   "overrides": {
-    "dompurify": "^3.3.3"
+    "dompurify": "^3.4.13",
+    "postcss": "^8.5.26",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "autoprefixer": "^10.4.19",
     "eslint": "^8",
-    "eslint-config-next": "14.2.35",
-    "postcss": "^8.4.39",
+    "eslint-config-next": "15.5.23",
+    "postcss": "^8.5.26",
     "tailwindcss": "^3.4.6",
     "typescript": "^5"
   }

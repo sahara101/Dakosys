@@ -170,14 +170,22 @@ export function Navbar({ isOpen = false, onClose }: NavbarProps) {
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t border-zinc-800">
+      <div className="p-4 border-t border-zinc-800 space-y-1">
         <a
           href="https://github.com/sahara101/Dakosys"
           target="_blank"
           rel="noopener noreferrer"
           className="text-zinc-600 hover:text-zinc-400 text-xs text-center block transition-colors"
         >
-          DAKOSYS v2.2.5
+          DAKOSYS v2.3.0
+        </a>
+        <a
+          href="https://www.thetvdb.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-zinc-700 hover:text-zinc-500 text-[10px] text-center block transition-colors"
+        >
+          Metadata provided by TheTVDB
         </a>
       </div>
     </aside>

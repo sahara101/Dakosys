@@ -1,0 +1,10 @@
+.git
+.gitignore
+**/node_modules
+web/.next
+web/out
+web/tsconfig.tsbuildinfo
+proxy
+.wrangler
+**/__pycache__
+*.pyc

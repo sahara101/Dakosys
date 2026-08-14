@@ -32,6 +32,7 @@ else:
 
 LOG_FILE = os.path.join(DATA_DIR, "anime_trakt_manager.log")
 TV_STATUS_CACHE = os.path.join(DATA_DIR, "tv_status_cache.json")
+NEXT_AIRING_DATA = os.path.join(DATA_DIR, "next_airing.json")
 PREVIOUS_SIZES_FILE = os.path.join(DATA_DIR, "previous_sizes.json")
 
 
@@ -540,9 +541,50 @@ def _fetch_tmdb_poster(tmdb_id: int, api_key: str) -> Optional[str]:
     return None
 
 
+def _next_airing_from_local(tmdb_api_key: str):
+    """Build the Next Airing response from the tracker's local data file."""
+    try:
+        with open(NEXT_AIRING_DATA, "r") as f:
+            records = json.load(f)
+    except Exception:
+        return None
+
+    if not isinstance(records, list):
+        return None
+
+    import concurrent.futures as _cf
+
+    tmdb_ids_to_fetch = [
+        r.get("tmdb_id") for r in records
+        if r.get("tmdb_id") and r.get("tmdb_id") not in _tmdb_poster_cache
+    ]
+
+    if tmdb_ids_to_fetch:
+        with _cf.ThreadPoolExecutor(max_workers=10) as pool:
+            list(pool.map(lambda tid: _fetch_tmdb_poster(tid, tmdb_api_key), tmdb_ids_to_fetch))
+
+    shows = []
+    for record in records:
+        tmdb_id = record.get("tmdb_id")
+        shows.append({
+            "rank": record.get("rank", 0),
+            "title": record.get("title", ""),
+            "tmdb_id": tmdb_id,
+            "trakt_slug": "",
+            "trakt_id": record.get("trakt_id"),
+            "poster_url": _tmdb_poster_cache.get(tmdb_id) if tmdb_id else None,
+            "status": str(record.get("status") or "UNKNOWN").upper(),
+            "date": record.get("date", ""),
+            "text": record.get("text", ""),
+        })
+
+    shows.sort(key=lambda s: s["rank"])
+    return {"shows": shows, "count": len(shows)}
+
+
 @app.get("/api/tv-status/next-airing")
 def get_next_airing():
-    """Fetch the Trakt 'Next Airing' list in order with TMDB posters and status info."""
+    """Fetch the ordered 'Next Airing' list with TMDB posters and status info."""
     config = load_config()
     if not config:
         return {"shows": [], "count": 0, "error": "Config file not found"}
@@ -550,6 +592,11 @@ def get_next_airing():
     tmdb_api_key = config.get("tmdb_api_key", "").strip()
     if not tmdb_api_key:
         return {"shows": [], "count": 0, "tmdb_key_missing": True}
+
+    if os.path.exists(NEXT_AIRING_DATA):
+        local_result = _next_airing_from_local(tmdb_api_key)
+        if local_result is not None:
+            return local_result
 
     username = config.get("trakt", {}).get("username")
     if not username:
@@ -627,6 +674,7 @@ def get_next_airing():
             shows.append({
                 "rank": item.get("rank", 0),
                 "title": title,
+                "tmdb_id": tmdb_id,
                 "trakt_slug": show_data.get("ids", {}).get("slug", ""),
                 "trakt_id": show_data.get("ids", {}).get("trakt"),
                 "poster_url": _tmdb_poster_cache.get(tmdb_id) if tmdb_id else None,
@@ -1314,6 +1362,7 @@ class SetupPayload(BaseModel):
     notifications: dict  # enabled, discord_webhook
     list_privacy: str  # "private" or "public"
     tmdb_api_key: str = ""
+    tvdb_api_key: str = ""
 
 @app.post("/api/setup")
 def run_setup_api(payload: SetupPayload):
@@ -1386,6 +1435,8 @@ def run_setup_api(payload: SetupPayload):
                 "tv_status_tracker": {
                     "enabled": bool(tst.get("enabled", False)),
                     "libraries": tst.get("libraries", []),
+                    "metadata_provider": "trakt" if tst.get("metadata_provider") == "trakt" else "tvdb",
+                    "next_airing": {"provider": "text_file"},
                     "colors": {
                         "AIRING": "#006580", "ENDED": "#000000", "CANCELLED": "#FF0000",
                         "RETURNING": "#008000", "SEASON_FINALE": "#9932CC",
@@ -1430,6 +1481,15 @@ def run_setup_api(payload: SetupPayload):
                 "enabled": bool(payload.notifications.get("enabled", False)),
             },
         }
+
+        if payload.tvdb_api_key:
+            config["tvdb_api_key"] = payload.tvdb_api_key
+
+        tv_uses_trakt = bool(tst.get("enabled", False)) and tst.get("metadata_provider") == "trakt"
+        if not bool(aet.get("enabled", False)):
+            config.pop("lists", None)
+            if not tv_uses_trakt:
+                config.pop("trakt", None)
 
         if payload.notifications.get("enabled") and payload.notifications.get("discord_webhook"):
             config["notifications"]["discord"] = {"webhook_url": payload.notifications["discord_webhook"]}

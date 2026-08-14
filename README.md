@@ -59,10 +59,13 @@ Discord webhook integration.
 ## Requirements
 
 - Plex Media Server
-- Trakt.tv account and API application
-- TMDB API for UI posters
+- TMDB API key
+- TheTVDB v4 API key — for the TV Status Tracker ([how to get one](#getting-a-thetvdb-api-key))
+- Trakt.tv account and API application — only for the Anime Episode Type service
 - Docker
 - Kometa / Plex Meta Manager
+
+> **Note on Trakt:** creating a new Trakt API application now [requires Trakt VIP](https://github.com/trakt/trakt-web/pull/3057). The TV Status Tracker no longer needs Trakt at all; only the Anime Episode Type service still does.
 
 ---
 
@@ -268,6 +271,93 @@ services:
 ```
 
 All keys are optional. Labels for `airing`, `season_finale`, `mid_season_finale`, `final_episode`, and `season_premiere` have the air date appended automatically.
+
+---
+
+## Next Airing Collection
+
+The Next Airing Kometa collection can be built from a Trakt list (default) or from a local file.
+
+```yaml
+services:
+  tv_status_tracker:
+    next_airing:
+      provider: trakt              # trakt | text_file
+      text_file_path: ''           # optional, where DAKOSYS writes the file
+      kometa_text_file_path: ''    # optional, how Kometa refers to that file
+```
+
+`trakt` keeps the existing behaviour: shows are synced to a Trakt list ordered by air date, and the collection uses a `trakt_list` builder.
+
+`text_file` writes an ordered list of TMDB IDs locally and generates a collection using Kometa's `text_file` builder. Air-date ordering is preserved because `text_file` honours `collection_order: custom`. No Trakt list is created or updated.
+
+**`text_file` requires Kometa 2.3.1 or newer, which in turn requires Python 3.10 or newer.** The builder does not exist in earlier versions — the collection fails to load with `Collection Error: text_file attribute not supported`, and Kometa continues without it, leaving the previous collection in place.
+
+Switching `provider` regenerates the per-library `*-next-airing.yml` files. The previous version of each file is saved alongside it as `.bak`.
+
+### Paths
+
+DAKOSYS and Kometa often see the same directory at different paths — DAKOSYS may write to `/kometa/config/collections` while Kometa itself sees `/config/collections`, or runs from its own install directory. Two settings cover this:
+
+- `text_file_path` — where DAKOSYS **writes** the file. Defaults to `<collections_dir>/next-airing.txt`.
+- `kometa_text_file_path` — what gets written into the collection YAML for Kometa to **read**. Defaults to `config/<collections dir name>/next-airing.txt`, matching the relative style already used for `file_poster`.
+
+The relative default works for both Docker installs (where `config/…` resolves under the mounted config volume) and native installs run from the Kometa directory. Override `kometa_text_file_path` only if your Kometa resolves paths differently.
+
+---
+
+## Metadata Provider
+
+Show status and next-episode data come from Trakt by default. `tvdb` is the recommended provider and what `setup.py` configures for new installs:
+
+```yaml
+tvdb_api_key: your-key-here
+
+services:
+  tv_status_tracker:
+    metadata_provider: tvdb    # trakt | tmdb | tvdb
+    use_tvmaze: true           # only used when metadata_provider is tmdb
+```
+
+Combining `metadata_provider: tvdb` (or `tmdb`) with `next_airing.provider: text_file` runs the TV Status Tracker **without a Trakt account at all**. With either set to `trakt`, Trakt credentials are still required.
+
+`tmdb` requires `tmdb_api_key`. `tvdb` requires both `tvdb_api_key` and `tmdb_api_key` — TMDB supplies the show status and which episode airs next, TheTVDB supplies the exact air time.
+
+### About the TheTVDB key
+
+You do not need to register anything. Since November 2020 TheTVDB issues [per-project keys, not per-user keys](https://thetvdb.com/api-information), and their terms require the key holder to keep it confidential — so the key is never shipped to clients. DAKOSYS reaches TheTVDB through a small proxy operated for the project, and attribution is displayed in the dashboard footer.
+
+Self-hosting the whole chain is supported: set `DAKOSYS_TVDB_API_KEY` in the container environment, or `tvdb_api_key` in `config.yaml`, and DAKOSYS calls TheTVDB directly with your own project key. If neither is set and the proxy is unreachable, the tracker falls back to `metadata_provider: tmdb` and keeps running with TMDB's unconverted calendar dates.
+
+If you are an individual user wanting to support TheTVDB, [subscribe](https://thetvdb.com/subscribe) rather than requesting an API key.
+
+### Why tvdb
+
+TheTVDB stores an episode's calendar date separately from the series' broadcast time and country of origin. Combining the three yields a real UTC instant, so the date renders correctly in every timezone, where a bare TMDB date cannot.
+
+Measured end to end against Trakt across 14 airing shows in 5 timezones, `tvdb` rendered the wrong day **20%** of the time versus **31%** for an unconverted TMDB date. Eight of the fourteen shows were exact in every timezone. The residual comes from three causes, none of which the timezone conversion can fix: TheTVDB and TMDB occasionally disagree about which episode airs next, TheTVDB sometimes has not added an upcoming season yet (the date falls back to TMDB's, unconverted), and streaming platforms have no single global release instant, so sources legitimately differ by a few hours.
+
+It also carries `finaleType`, which restores the `FINAL_EPISODE` status that TMDB alone cannot distinguish from a season finale.
+
+### Automatic fallback
+
+Trakt's public metadata endpoints need only a `client_id`, so `metadata_provider: trakt` works without OAuth as long as `next_airing.provider` is `text_file`. Should Trakt reject those requests anyway — an expired or revoked application key, or an endpoint moved behind Trakt VIP — DAKOSYS logs the HTTP status and switches to TMDB for the remainder of the run rather than leaving shows unprocessed. This needs `tmdb_api_key` to be set; without it the run continues but the affected shows get no status.
+
+The fallback is per-run and not persisted: the next run retries Trakt first.
+
+### Air dates and timezones
+
+TMDB only provides a calendar date for an episode, with no time of day, so it cannot be converted to a viewer's timezone. DAKOSYS therefore looks the episode up on TVmaze (free, no API key) to obtain a real UTC timestamp, and converts only that. Where TVmaze has no entry, the TMDB date is displayed as-is rather than converted — converting a bare date would shift it a day for users in negative UTC offsets.
+
+Set `use_tvmaze: false` to skip the lookup entirely and always use TMDB dates as-is.
+
+In practice this matches Trakt closely. On a 14-show library, 13 dates were identical to Trakt's and all statuses matched; the one difference was a show TVmaze had no upcoming episode for.
+
+### Known differences from Trakt
+
+- TMDB does not distinguish a series finale from a season finale ahead of broadcast, so `FINAL_EPISODE` is reported as `SEASON_FINALE`.
+- Streaming releases have no real air time. TVmaze substitutes noon UTC, which is stable across timezones; shows sharing a date are ordered by title.
+- TVmaze coverage is thinner for anime, which falls back to TMDB dates.
 
 ---
 

@@ -28,9 +28,15 @@ function PosterCard({ show }: { show: NextAiringShow }) {
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
+  const linkUrl = show.trakt_slug
+    ? `https://trakt.tv/shows/${show.trakt_slug}`
+    : show.tmdb_id
+    ? `https://www.themoviedb.org/tv/${show.tmdb_id}`
+    : null;
+
   return (
     <a
-      href={`https://trakt.tv/shows/${show.trakt_slug}`}
+      href={linkUrl ?? undefined}
       target="_blank"
       rel="noopener noreferrer"
       className="group block rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-violet-600/50 transition-all hover:shadow-lg hover:shadow-violet-900/20"
@@ -127,7 +133,7 @@ export default function NextAiringPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-white">Next Airing</h1>
         <p className="text-zinc-400 mt-1">
-          Your Trakt &ldquo;Next Airing&rdquo; watchlist in air-date order
+          Shows with an upcoming episode, in air-date order
         </p>
       </div>
 
@@ -154,7 +160,7 @@ export default function NextAiringPage() {
           <p className="text-zinc-500 text-xs mb-4">{shows.length} shows</p>
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3">
             {shows.map((show) => (
-              <PosterCard key={show.trakt_id ?? show.title} show={show} />
+              <PosterCard key={show.tmdb_id ?? show.trakt_id ?? show.title} show={show} />
             ))}
           </div>
         </>
