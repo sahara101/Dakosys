@@ -19,9 +19,9 @@ Creates Trakt lists and Kometa overlays categorizing anime episodes by type: fil
 
 ### TV / Anime Status Tracker
 
-No Trakt VIP required (uses one list).
+No Trakt account required.
 
-Creates overlays showing the airing status of TV shows and anime: currently airing, ended, cancelled, returning, season finale, mid-season finale, final episode, and season premiere. Displays upcoming air dates. Generates a Trakt list of shows with upcoming episodes.
+Creates overlays showing the airing status of TV shows and anime: currently airing, ended, cancelled, returning, season finale, mid-season finale, final episode, and season premiere. Displays upcoming air dates, converted to your timezone from the network's real broadcast time. Generates a Next Airing collection of shows with upcoming episodes, ordered by air date — from a local file by default, or from a Trakt list if you prefer.
 
 <img width="1391" height="876" alt="image" src="https://github.com/user-attachments/assets/ce2e31fe-aeee-467f-b498-6ea36ac0139b" />
 
@@ -276,16 +276,20 @@ All keys are optional. Labels for `airing`, `season_finale`, `mid_season_finale`
 
 ## Next Airing Collection
 
-The Next Airing Kometa collection can be built from a Trakt list (default) or from a local file.
+The Next Airing Kometa collection can be built from a local file (default) or from a Trakt list.
 
 ```yaml
 services:
   tv_status_tracker:
     next_airing:
-      provider: trakt              # trakt | text_file
+      provider: text_file          # text_file | trakt
       text_file_path: ''           # optional, where DAKOSYS writes the file
       kometa_text_file_path: ''    # optional, how Kometa refers to that file
 ```
+
+> **Upgrading from 2.2.x:** this setting is new, so an install without it takes the `text_file`
+> default — the Trakt list stops being updated and each `*-next-airing.yml` is regenerated to use
+> the `text_file` builder. Set `provider: trakt` to keep the previous behaviour.
 
 `trakt` keeps the existing behaviour: shows are synced to a Trakt list ordered by air date, and the collection uses a `trakt_list` builder.
 
@@ -308,20 +312,29 @@ The relative default works for both Docker installs (where `config/…` resolves
 
 ## Metadata Provider
 
-Show status and next-episode data come from Trakt by default. `tvdb` is the recommended provider and what `setup.py` configures for new installs:
+Show status and next-episode data come from TheTVDB when `tmdb_api_key` is set, and from Trakt when it is not. `tvdb` is the recommended provider and what `setup.py` configures for new installs:
 
 ```yaml
-tvdb_api_key: your-key-here
+tvdb_api_key: your-key-here      # optional, the shared proxy is used without it
 
 services:
   tv_status_tracker:
     metadata_provider: tvdb    # trakt | tmdb | tvdb
-    use_tvmaze: true           # only used when metadata_provider is tmdb
+    use_tvmaze: true           # air-time fallback under tmdb and tvdb
 ```
+
+> **Upgrading from 2.2.x:** this setting is new, so an install without it takes the default above.
+> If you already have a `tmdb_api_key` — previously used only for Next Airing poster images — your
+> status and air dates now come from TheTVDB instead of Trakt. Set `metadata_provider: trakt` to
+> keep the previous source.
 
 Combining `metadata_provider: tvdb` (or `tmdb`) with `next_airing.provider: text_file` runs the TV Status Tracker **without a Trakt account at all**. With either set to `trakt`, Trakt credentials are still required.
 
-`tmdb` requires `tmdb_api_key`. `tvdb` requires both `tvdb_api_key` and `tmdb_api_key` — TMDB supplies the show status and which episode airs next, TheTVDB supplies the exact air time.
+Both `tmdb` and `tvdb` require `tmdb_api_key`, and the tracker refuses to start without it — TMDB supplies the show status and which episode airs next, including the `CANCELLED` state that TheTVDB has no equivalent for. `tvdb` then adds the exact air time on top. `tvdb_api_key` is optional: without one, TheTVDB is reached through the shared proxy.
+
+### Choosing the provider during setup
+
+The web setup wizard asks which metadata source to use and writes `metadata_provider` accordingly. `setup.py`, the CLI setup, always writes `metadata_provider: tvdb` — selecting the source there is coming in the next release. Until then, set the key in `config.yaml` directly if you want `trakt` or `tmdb` on a CLI-configured install.
 
 ### About the TheTVDB key
 
