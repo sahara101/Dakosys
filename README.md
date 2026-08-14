@@ -59,13 +59,13 @@ Discord webhook integration.
 ## Requirements
 
 - Plex Media Server
-- TMDB API key
-- TheTVDB v4 API key — for the TV Status Tracker ([how to get one](#getting-a-thetvdb-api-key))
-- Trakt.tv account and API application — only for the Anime Episode Type service
 - Docker
-- Kometa / Plex Meta Manager
+- Kometa / Plex Meta Manager — **2.3.1 or newer** for the default Next Airing configuration, which uses Kometa's `text_file` builder. Kometa 2.3.1 itself requires Python 3.10+. On an older Kometa, set `next_airing.provider: trakt` instead
+- TMDB API key — required by the TV Status Tracker, which will not start without one. Not needed for an Anime Episode Type only install
+- TheTVDB v4 API key — **optional**. DAKOSYS reaches TheTVDB through a proxy operated for the project, so there is nothing to register ([details](#about-the-thetvdb-key))
+- Trakt.tv account and API application — required by the Anime Episode Type service, and by the TV Status Tracker only if you set `metadata_provider: trakt` or `next_airing.provider: trakt`
 
-> **Note on Trakt:** creating a new Trakt API application now [requires Trakt VIP](https://github.com/trakt/trakt-web/pull/3057). The TV Status Tracker no longer needs Trakt at all; only the Anime Episode Type service still does.
+> **Note on Trakt:** creating a new Trakt API application now [requires Trakt VIP](https://github.com/trakt/trakt-web/pull/3057). The TV Status Tracker no longer needs Trakt in its default configuration; the Anime Episode Type service still does.
 
 ---
 
