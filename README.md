@@ -15,7 +15,6 @@ Trakt VIP required.
 Creates Trakt lists and Kometa overlays categorizing anime episodes by type: filler, manga canon, anime canon, and mixed. Supports automatic scheduling and custom title mappings for episodes that differ between AnimeFillerList and Trakt.
 
 <img width="1406" height="326" alt="image" src="https://github.com/user-attachments/assets/5d90e452-173c-4665-b020-add2625ed261" />
-<img width="1406" height="326" alt="image" src="https://github.com/user-attachments/assets/5d90e452-173c-4665-b020-add2625ed261" />
 
 ### TV / Anime Status Tracker
 
@@ -31,7 +30,6 @@ No Trakt required.
 
 Creates overlays showing file sizes for movies and TV shows. Tracks size changes over time and optionally displays episode counts.
 
-<img width="1381" height="371" alt="image" src="https://github.com/user-attachments/assets/829cd5b1-2d67-456b-b41a-4a930b7a2b9a" />
 <img width="1381" height="371" alt="image" src="https://github.com/user-attachments/assets/829cd5b1-2d67-456b-b41a-4a930b7a2b9a" />
 
 
@@ -61,7 +59,7 @@ Discord webhook integration.
 - Plex Media Server
 - Docker
 - Kometa / Plex Meta Manager — **2.3.1 or newer** for the default Next Airing configuration, which uses Kometa's `text_file` builder. Kometa 2.3.1 itself requires Python 3.10+. On an older Kometa, set `next_airing.provider: trakt` instead
-- TMDB API key — required by the TV Status Tracker, which will not start without one. Not needed for an Anime Episode Type only install
+- TMDB API key — required by the TV Status Tracker under `metadata_provider: tvdb` (the default) and `tmdb`, where the tracker will not start without one. Optional under `metadata_provider: trakt`, and not needed at all for an Anime Episode Type only install
 - TheTVDB v4 API key — **optional**. DAKOSYS reaches TheTVDB through a proxy operated for the project, so there is nothing to register ([details](#about-the-thetvdb-key))
 - Trakt.tv account and API application — required by the Anime Episode Type service, and by the TV Status Tracker only if you set `metadata_provider: trakt` or `next_airing.provider: trakt`
 
@@ -145,7 +143,7 @@ docker compose run --rm dakosys create-all "One-Piece"
 
 Create a specific list type:
 ```
-docker compose run --rm dakosys create-list "Naruto-Shippuden" FILLER
+docker compose run --rm dakosys create "Naruto-Shippuden" FILLER
 ```
 
 Fix mapping errors for episodes:
@@ -328,7 +326,9 @@ services:
 > status and air dates now come from TheTVDB instead of Trakt. Set `metadata_provider: trakt` to
 > keep the previous source.
 
-Combining `metadata_provider: tvdb` (or `tmdb`) with `next_airing.provider: text_file` runs the TV Status Tracker **without a Trakt account at all**. With either set to `trakt`, Trakt credentials are still required.
+Combining `metadata_provider: tvdb` (or `tmdb`) with `next_airing.provider: text_file` runs the TV Status Tracker **without a Trakt account at all**.
+
+The two `trakt` settings do not need the same credentials. `metadata_provider: trakt` reads Trakt's public endpoints and needs only `trakt.client_id` — no OAuth, no token. `next_airing.provider: trakt` writes to a Trakt list and therefore needs the full application plus an authorized token.
 
 Both `tmdb` and `tvdb` require `tmdb_api_key`, and the tracker refuses to start without it — TMDB supplies the show status and which episode airs next, including the `CANCELLED` state that TheTVDB has no equivalent for. `tvdb` then adds the exact air time on top. `tvdb_api_key` is optional: without one, TheTVDB is reached through the shared proxy.
 
@@ -340,7 +340,9 @@ The web setup wizard asks which metadata source to use and writes `metadata_prov
 
 You do not need to register anything. Since November 2020 TheTVDB issues [per-project keys, not per-user keys](https://thetvdb.com/api-information), and their terms require the key holder to keep it confidential — so the key is never shipped to clients. DAKOSYS reaches TheTVDB through a small proxy operated for the project, and attribution is displayed in the dashboard footer.
 
-Self-hosting the whole chain is supported: set `DAKOSYS_TVDB_API_KEY` in the container environment, or `tvdb_api_key` in `config.yaml`, and DAKOSYS calls TheTVDB directly with your own project key. If neither is set and the proxy is unreachable, the tracker falls back to `metadata_provider: tmdb` and keeps running with TMDB's unconverted calendar dates.
+Self-hosting the whole chain is supported: set `DAKOSYS_TVDB_API_KEY` in the container environment, or `tvdb_api_key` in `config.yaml`, and DAKOSYS calls TheTVDB directly with your own project key.
+
+If TheTVDB cannot be reached — no key and an unreachable proxy — the run does not fail. Under `tvdb` the show record already comes from TMDB and TheTVDB only supplies the air time, so an unavailable TheTVDB simply means that upgrade does not happen: TVmaze is tried next when `use_tvmaze` is on, and failing that the TMDB calendar date is shown as-is, unconverted.
 
 If you are an individual user wanting to support TheTVDB, [subscribe](https://thetvdb.com/subscribe) rather than requesting an API key.
 
